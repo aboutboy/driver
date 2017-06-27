@@ -1,0 +1,12 @@
+--- a/rt2860v2/common/cmm_mac_pci.c
++++ b/rt2860v2/common/cmm_mac_pci.c
+@@ -841,9 +841,6 @@ NDIS_STATUS	RTMPAllocTxRxRingMemory(
+ 				break;
+ 			}
+ 
+-			/* Zero init this memory block*/
+-			NdisZeroMemory(pDmaBuf->AllocVa, pDmaBuf->AllocSize);
+-
+ 			/* Write RxD buffer address & allocated buffer length*/
+ 			pRxD = (PRXD_STRUC) pAd->RxRing.Cell[index].AllocVa;
+ 			pRxD->SDP0 = RTMP_GetPhysicalAddressLow(pDmaBuf->AllocPa);

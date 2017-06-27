@@ -1,0 +1,1168 @@
+From 4afda2fb09d3155660e5d2f9dc1ec4ab2d65dfe6 Mon Sep 17 00:00:00 2001
+From: Lea <liweiqiang@xcloud.cc>
+Date: Sat, 1 Apr 2017 18:03:28 +0800
+Subject: [PATCH] MT76x2 CSO/TSO Support
+
+---
+ mt76x2/ap/ap_data.c                    | 17 +++-
+ mt76x2/ate/chips/mt76x2_ate.c          |  4 +
+ mt76x2/ate/common/ate_pci.c            | 17 ++++
+ mt76x2/chips/mt76x2.c                  | 41 +++++++--
+ mt76x2/common/cmm_cfg.c                | 10 +++
+ mt76x2/common/cmm_data.c               | 47 ++++++++++
+ mt76x2/common/cmm_data_pci.c           | 99 ++++++++++++++++++++--
+ mt76x2/common/rtmp_init.c              |  5 ++
+ mt76x2/include/mac_ral/nmac/ral_nmac.h | 26 ++++++
+ mt76x2/include/mac_ral/rtmp_mac.h      |  5 ++
+ mt76x2/include/os/pkt_meta.h           | 37 ++++++++
+ mt76x2/include/os/rt_linux.h           |  4 +-
+ mt76x2/include/rt_os_util.h            | 32 +++++++
+ mt76x2/include/rtmp.h                  | 16 ++++
+ mt76x2/naf/cso.c                       |  6 ++
+ mt76x2/naf/net_acc.c                   | 69 +++++++++++++++
+ mt76x2/naf/tso.c                       |  6 ++
+ mt76x2/os/linux/rt_main_dev.c          | 18 +++-
+ mt76x2/os/linux/rt_profile.c           | 15 ++--
+ mt76x2/os/linux/rt_rbus_pci_drv.c      | 29 ++++---
+ mt76x2/sta/rtmp_data.c                 | 23 ++++-
+ mt76x2_ap/Makefile                     |  8 ++
+ 22 files changed, 499 insertions(+), 35 deletions(-)
+ mode change 100644 => 100755 mt76x2/ap/ap_data.c
+ mode change 100644 => 100755 mt76x2/ate/chips/mt76x2_ate.c
+ mode change 100644 => 100755 mt76x2/ate/common/ate_pci.c
+ mode change 100644 => 100755 mt76x2/chips/mt76x2.c
+ mode change 100644 => 100755 mt76x2/common/cmm_cfg.c
+ mode change 100644 => 100755 mt76x2/common/cmm_data.c
+ mode change 100644 => 100755 mt76x2/common/cmm_data_pci.c
+ mode change 100644 => 100755 mt76x2/common/rtmp_init.c
+ mode change 100644 => 100755 mt76x2/include/mac_ral/nmac/ral_nmac.h
+ mode change 100644 => 100755 mt76x2/include/mac_ral/rtmp_mac.h
+ mode change 100644 => 100755 mt76x2/include/os/pkt_meta.h
+ mode change 100644 => 100755 mt76x2/include/os/rt_linux.h
+ mode change 100644 => 100755 mt76x2/include/rt_os_util.h
+ mode change 100644 => 100755 mt76x2/include/rtmp.h
+ mode change 100644 => 100755 mt76x2/naf/cso.c
+ mode change 100644 => 100755 mt76x2/naf/net_acc.c
+ mode change 100644 => 100755 mt76x2/naf/tso.c
+ mode change 100644 => 100755 mt76x2/os/linux/rt_main_dev.c
+ mode change 100644 => 100755 mt76x2/os/linux/rt_profile.c
+ mode change 100644 => 100755 mt76x2/os/linux/rt_rbus_pci_drv.c
+ mode change 100644 => 100755 mt76x2/sta/rtmp_data.c
+
+diff --git a/mt76x2/ap/ap_data.c b/mt76x2/ap/ap_data.c
+old mode 100644
+new mode 100755
+index 5463f20..6d8dc35
+--- a/mt76x2/ap/ap_data.c
++++ b/mt76x2/ap/ap_data.c
+@@ -1639,6 +1639,12 @@ VOID AP_AMPDU_Frame_Tx(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
+ 		{			
+ 			UCHAR iv_offset = 0, ext_offset = 0;
+ 			
++#ifdef CONFIG_TSO_SUPPORT
++		if (pTxBlk->naf_type)
++			DBGPRINT(RT_DEBUG_ERROR, ("%s():Error, try to encrypt a pkt marked to use NAF(%d)!\n",
++							__FUNCTION__, pTxBlk->naf_type));
++#endif /* CONFIG_TSO_SUPPORT */
++
+ 			/*
+ 				If original Ethernet frame contains no LLC/SNAP,
+ 				then an extra LLC/SNAP encap is required
+@@ -1715,7 +1721,10 @@ VOID AP_AMPDU_Frame_Tx(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
+ 	{
+ 		RTMPWriteTxWI_Data(pAd, (TXWI_STRUC *)(&pTxBlk->HeaderBuf[TXINFO_SIZE]), pTxBlk);
+ 
+-
++#ifdef CONFIG_TSO_SUPPORT
++		// TODO: shiang-6590, the pTxBlk->MpduHeaderLen is not correct for tso_info
++		rlt_tso_info_write(pAd, (TSO_INFO *)(&pTxBlk->HeaderBuf[TXINFO_SIZE + TXWISize]), pTxBlk, pTxBlk->MpduHeaderLen);
++#endif /* CONFIG_TSO_SUPPORT */
+ 
+ 		NdisZeroMemory((PUCHAR)(&pMacEntry->CachedBuf[0]), sizeof(pMacEntry->CachedBuf));
+ 		NdisMoveMemory((PUCHAR)(&pMacEntry->CachedBuf[0]), 
+@@ -2548,6 +2557,12 @@ VOID AP_Legacy_Frame_Tx(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
+ 	if (TX_BLK_TEST_FLAG(pTxBlk, fTX_bSwEncrypt))
+ 	{			
+ 		UCHAR	iv_offset = 0, ext_offset = 0;
++		
++#ifdef CONFIG_TSO_SUPPORT
++		if (pTxBlk->naf_type)
++			DBGPRINT(RT_DEBUG_ERROR, ("%s():Error, try to encrypt a pkt marked to use NAF(%d)!\n",
++							__FUNCTION__, pTxBlk->naf_type));
++#endif /* CONFIG_TSO_SUPPORT */
+ 
+ 		/*
+ 			If original Ethernet frame contains no LLC/SNAP,
+diff --git a/mt76x2/ate/chips/mt76x2_ate.c b/mt76x2/ate/chips/mt76x2_ate.c
+old mode 100644
+new mode 100755
+index 90ce87c..66aaa87
+--- a/mt76x2/ate/chips/mt76x2_ate.c
++++ b/mt76x2/ate/chips/mt76x2_ate.c
+@@ -2307,7 +2307,11 @@ VOID mt76x2_ate_SendNullFrame(IN PRTMP_ADAPTER pAd)
+ 		pTxD->SDLen1 = GET_OS_PKT_LEN(pPacket);
+ 		pTxD->LastSec0 = (pTxD->SDLen1 == 0) ? 1 : 0;
+ 		pTxD->LastSec1 = 1;
++#ifdef CONFIG_CSO_SUPPORT
++		ral_write_txd(pAd, pTxD, pTxInfo, &txblk, FALSE, FIFO_EDCA);
++#else 
+ 		ral_write_txd(pAd, pTxD, pTxInfo, FALSE, FIFO_EDCA);
++#endif /* CONFIG_CSO_SUPPORT */
+ 	}
+ 
+ #ifdef RT_BIG_ENDIAN
+diff --git a/mt76x2/ate/common/ate_pci.c b/mt76x2/ate/common/ate_pci.c
+old mode 100644
+new mode 100755
+index 25d7056..bc7b827
+--- a/mt76x2/ate/common/ate_pci.c
++++ b/mt76x2/ate/common/ate_pci.c
+@@ -570,7 +570,11 @@ INT ATESetUpFrame(
+ 		pTxD->SDLen1 = GET_OS_PKT_LEN(pPacket);
+ 		pTxD->LastSec0 = (pTxD->SDLen1 == 0) ? 1 : 0;
+ 		pTxD->LastSec1 = 1;
++#ifdef CONFIG_CSO_SUPPORT
++		ral_write_txd(pAd, pTxD, pTxInfo, NULL, FALSE, FIFO_EDCA);
++#else
+ 		ral_write_txd(pAd, pTxD, pTxInfo, FALSE, FIFO_EDCA);
++#endif /* CONFIG_CSO_SUPPORT */
+ 
+ 		pDest = (PUCHAR)pTxWI;
+ 		pDest += TXWISize;
+@@ -596,7 +600,12 @@ INT ATESetUpFrame(
+ 		pTxD->SDLen1 = GET_OS_PKT_LEN(pPacket);
+ 		pTxD->LastSec0 = (pTxD->SDLen1 == 0) ? 1 : 0;
+ 		pTxD->LastSec1 = 1;
++#ifdef CONFIG_CSO_SUPPORT
++		ral_write_txd(pAd, pTxD, pTxInfo, &txblk, FALSE, FIFO_EDCA);
++#else
+ 		ral_write_txd(pAd, pTxD, pTxInfo, FALSE, FIFO_EDCA);
++#endif /* CONFIG_CSO_SUPPORT */
++
+ 	}
+ 
+ #ifdef RT_BIG_ENDIAN
+@@ -905,7 +914,11 @@ INT ATESetUpNDPAFrame(
+ 		pTxD->SDLen1 = GET_OS_PKT_LEN(pPacket);
+ 		pTxD->LastSec0 = (pTxD->SDLen1 == 0) ? 1 : 0;
+ 		pTxD->LastSec1 = 1;
++#ifdef CONFIG_CSO_SUPPORT
++		ral_write_txd(pAd, pTxD, pTxInfo, NULL, FALSE, FIFO_EDCA);
++#else
+ 		ral_write_txd(pAd, pTxD, pTxInfo, FALSE, FIFO_EDCA);
++#endif /* CONFIG_CSO_SUPPORT */
+ 
+ 		pDest = (PUCHAR)pTxWI;
+ 		pDest += TXWISize;
+@@ -931,7 +944,11 @@ INT ATESetUpNDPAFrame(
+ 		pTxD->SDLen1 = GET_OS_PKT_LEN(pPacket);
+ 		pTxD->LastSec0 = (pTxD->SDLen1 == 0) ? 1 : 0;
+ 		pTxD->LastSec1 = 1;
++#ifdef CONFIG_CSO_SUPPORT
++		ral_write_txd(pAd, pTxD, pTxInfo, &txblk, FALSE, FIFO_EDCA);
++#else
+ 		ral_write_txd(pAd, pTxD, pTxInfo, FALSE, FIFO_EDCA);
++#endif /* CONFIG_CSO_SUPPORT */
+ 	}
+ 
+ #ifdef RT_BIG_ENDIAN
+diff --git a/mt76x2/chips/mt76x2.c b/mt76x2/chips/mt76x2.c
+old mode 100644
+new mode 100755
+index 0314d5f..ac89e65
+--- a/mt76x2/chips/mt76x2.c
++++ b/mt76x2/chips/mt76x2.c
+@@ -43,6 +43,10 @@ static RTMP_REG_PAIR mt76x2_mac_cr_table[] = {
+ 	{0x150C, 0x00000002}, /* Enable TX length > 4095 bytes */
+ 	{0x1608, 0x00000002},
+ 	{0xa44,	0x0},
++#if (defined(CONFIG_TSO_SUPPORT) || defined(CONFIG_CSO_SUPPORT))
++	{0x80c, 0x8},
++#endif /* defined(CONFIG_TSO_SUPPORT) || defined(CONFIG_CSO_SUPPORT) */
++
+ #ifdef HDR_TRANS_SUPPORT
+ 	{HEADER_TRANS_CTRL_REG, 0x2}, /* 0x1: TX, 0x2: RX */
+ 	{TSO_CTRL, 0x7050},
+@@ -78,6 +82,7 @@ static RTMP_REG_PAIR mt76x2_mac_cr_table[] = {
+ 	{0x1358, 0xEDCBA980},
+ 	{0x1648, 0x00830083}, /* default use 2 stream to Tx HW auto gened packets */
+ };
++/* FIXME: use ARRAY_SIZE macro, or just (sizeof(mt76x2_mac_cr_table) / sizeof(mt76x2_mac_cr_table[0])) */
+ static UCHAR mt76x2_mac_cr_nums = (sizeof(mt76x2_mac_cr_table) / sizeof(RTMP_REG_PAIR));
+ 
+ RTMP_REG_PAIR mt76x2_mac_g_band_cr_table[] = {
+@@ -1794,7 +1799,7 @@ static void mt76x2_init_mac_cr(RTMP_ADAPTER *ad)
+ 									mt76x2_mac_cr_table[i].Value);
+ 		}
+ 	}
+-#endif
++#endif /* RTMP_PCI_SUPPORT */
+ 			
+ 
+ #ifdef HDR_TRANS_TX_SUPPORT
+@@ -5736,7 +5741,22 @@ static const RTMP_CHIP_CAP MT76x2_ChipCap = {
+ #ifdef FIFO_EXT_SUPPORT
+ 	.FlgHwFifoExtCap = TRUE,
+ #endif /* FIFO_EXT_SUPPORT */
+-	.asic_caps = (fASIC_CAP_PMF_ENC | fASIC_CAP_MCS_LUT),
++/*
++#ifdef CONFIG_CSO_SUPPORT
++	.asic_caps |= fASIC_CAP_CSO, 
++#endif
++#ifdef CONFIG_TSO_SUPPORT
++	.asic_caps |= fASIC_CAP_TSO, 
++#endif
++*/
++	.asic_caps = (fASIC_CAP_PMF_ENC | fASIC_CAP_MCS_LUT
++#ifdef CONFIG_CSO_SUPPORT
++	| fASIC_CAP_CSO
++#endif /* CONFIG_CSO_SUPPORT */
++#ifdef CONFIG_TSO_SUPPORT
++	| fASIC_CAP_TSO
++#endif /* CONFIG_TSO_SUPPORT */
++	),
+ 	.phy_caps = (fPHY_CAP_24G | fPHY_CAP_5G | fPHY_CAP_HT | fPHY_CAP_VHT | fPHY_CAP_LDPC),
+ 	.MaxNumOfRfId = MAX_RF_ID,
+ 	.pRFRegTable = NULL,
+@@ -5975,14 +5995,23 @@ VOID mt76x2_init(RTMP_ADAPTER *pAd)
+ 
+ #ifdef DOT11_VHT_AC
+ 	{
+-	UINT32 mac_val = 0;
+-	RTMP_IO_READ32(pAd, 0x38, &mac_val);	
++		UINT32 mac_val = 0;
++		RTMP_IO_READ32(pAd, 0x38, &mac_val);	
+ 
+-	if ((mac_val & 0x80000) == 0x80000)
+-		pChipCap->ac_off_mode = 1;		
++		if ((mac_val & 0x80000) == 0x80000)
++			pChipCap->ac_off_mode = 1;		
+ 	}
+ #endif /* DOT11_VHT_AC */
+ 
++	/* CSO: Checksum offload */
++#ifdef CONFIG_CSO_SUPPORT
++	pChipCap->asic_caps |= fASIC_CAP_CSO,
++#endif /* CONFIG_CSO_SUPPORT */
++
++/* TSO: TCP segmentation offload */
++#ifdef CONFIG_TSO_SUPPORT
++	pChipCap->asic_caps |= fASIC_CAP_TSO,
++#endif /* CONFIG_CSO_SUPPORT */
+ 
+ 
+ 	pChipCap->asic_caps |= (fASIC_CAP_MCS_LUT);
+diff --git a/mt76x2/common/cmm_cfg.c b/mt76x2/common/cmm_cfg.c
+old mode 100644
+new mode 100755
+index 88c83d6..3806258
+--- a/mt76x2/common/cmm_cfg.c
++++ b/mt76x2/common/cmm_cfg.c
+@@ -1499,6 +1499,16 @@ INT RTMP_COM_IoctlHandle(
+ 		case CMD_RTPRIV_IOCTL_SIOCGIWNAME:
+ 			RtmpIoctl_rt_ioctl_giwname(pAd, pData, 0);
+ 			break;
++#ifdef CONFIG_CSO_SUPPORT
++		case CMD_RTPRIV_IOCTL_ADAPTER_CSO_SUPPORT_TEST:
++			*(UCHAR *)pData = (pAd->MoreFlags & fASIC_CAP_CSO) ? 1:0;
++			break;
++#endif /* CONFIG_CSO_SUPPORT */
++#ifdef CONFIG_TSO_SUPPORT
++		case CMD_RTPRIV_IOCTL_ADAPTER_TSO_SUPPORT_TEST:
++			*(UCHAR *)pData = (pAd->MoreFlags & fASIC_CAP_TSO) ? 1:0;
++			break;
++#endif /* CONFIG_TSO_SUPPORT */
+ 
+ 	}
+ 
+diff --git a/mt76x2/common/cmm_data.c b/mt76x2/common/cmm_data.c
+old mode 100644
+new mode 100755
+index 24ba591..e09f4f7
+--- a/mt76x2/common/cmm_data.c
++++ b/mt76x2/common/cmm_data.c
+@@ -1274,6 +1274,10 @@ NDIS_STATUS MlmeHardTransmitMgmtRing(
+ 	RTMPWIEndianChange(pAd, (PUCHAR)pFirstTxWI, TYPE_TXWI);
+ #endif
+ 
++#ifdef CONFIG_TSO_SUPPORT
++	// TODO: shiang-6590, for mgmt frame, we don't need to fill any fields of TSO_INFO
++	//rlt_tso_info_write(pAd, tinfo, TX_BLK * pTxBlk);
++#endif /* CONFIG_TSO_SUPPORT */
+ 
+ 	/* Now do hardware-depened kick out.*/
+ 	HAL_KickOutMgmtTx(pAd, QueIdx, pPacket, pSrcBufVA, SrcBufLen);
+@@ -1478,6 +1482,9 @@ static UCHAR TxPktClassification(RTMP_ADAPTER *pAd, PNDIS_PACKET  pPacket, TX_BL
+ 		else if ((pMacEntry->TXBAbitmap & (1<<(RTMP_GET_PACKET_UP(pPacket)))) != 0)
+ 			return (TxFrameType | TX_AMPDU_FRAME);
+ 		else if(CLIENT_STATUS_TEST_FLAG(pMacEntry, fCLIENT_STATUS_AMSDU_INUSED)
++#ifdef CONFIG_TSO_SUPPORT
++			&& (!(RTMP_GET_PKT_CSO(pPacket) || RTMP_GET_PKT_TSO(pPacket)))
++#endif /* CONFIG_TSO_SUPPORT */
+ 		)
+ 			return (TxFrameType | TX_AMSDU_FRAME);
+ 		else
+@@ -1491,6 +1498,10 @@ static UCHAR TxPktClassification(RTMP_ADAPTER *pAd, PNDIS_PACKET  pPacket, TX_BL
+ 		if ((CLIENT_STATUS_TEST_FLAG(pMacEntry, fCLIENT_STATUS_AGGREGATION_CAPABLE) && pAd->CommonCfg.bAggregationCapable) &&
+ 			(RTMP_GET_PACKET_TXRATE(pPacket) >= RATE_6) &&
+ 			(!(OPSTATUS_TEST_FLAG(pAd, fOP_STATUS_WMM_INUSED) && CLIENT_STATUS_TEST_FLAG(pMacEntry, fCLIENT_STATUS_WMM_CAPABLE)))
++#ifdef CONFIG_TSO_SUPPORT
++			&& (!(RTMP_GET_PKT_CSO(pPacket) || RTMP_GET_PKT_TSO(pPacket)))
++#endif /* CONFIG_TSO_SUPPORT */
++
+ 		)
+ 		{	/* if peer support Ralink Aggregation, we use it.*/
+ 			TxFrameType |= TX_RALINK_FRAME;
+@@ -1837,6 +1848,30 @@ BOOLEAN RTMP_FillTxBlkInfo(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
+ 		
+ 		pMacEntry->DebugTxCount++;
+ 	}
++	
++#ifdef CONFIG_TSO_SUPPORT
++	if (RTMP_GET_PKT_CSO(pPacket) || RTMP_GET_PKT_TSO(pPacket))
++	{
++		TSO_INFO *info = &pTxBlk->tso_info;
++
++		if (RTMP_GET_PKT_TSO(pPacket)) {
++			DBGPRINT(RT_DEBUG_TRACE, ("%s(): Transmit a TSO/CSO frame:\n", __FUNCTION__));
++			DBGPRINT(RT_DEBUG_TRACE, ("\tcso/tso=%d:%d, is_tcp=%d, ips=%d, tups=%d, mss=%d!\n",
++					RTMP_GET_PKT_CSO(pPacket),
++					RTMP_GET_PKT_TSO(pPacket),
++					RTMP_GET_PKT_TCP(pPacket),
++					RTMP_GET_PKT_IPS(pPacket),
++					RTMP_GET_PKT_TUPS(pPacket),
++					RTMP_GET_PKT_MSS(pPacket)));
++		}
++		pTxBlk->naf_type = RTMP_GET_PKT_NAF_TYPE(pPacket);
++		info->ips = RTMP_GET_PKT_IPS(pPacket);
++		info->tups = RTMP_GET_PKT_TUPS(pPacket);
++		info->mss = RTMP_GET_PKT_MSS(pPacket);
++		if (RTMP_GET_PKT_TCP(pPacket))
++			info->tcp = 1;
++	}
++#endif /* CONFIG_TSO_SUPPORT */
+ 
+ 
+ 	pAd->LastTxRate = (USHORT)pTxBlk->pTransmit->word;
+@@ -1860,6 +1895,9 @@ BOOLEAN CanDoAggregateTransmit(
+ 	if (RTMP_GET_PACKET_DHCP(pPacket) ||
+ 		RTMP_GET_PACKET_EAPOL(pPacket) ||
+ 		RTMP_GET_PACKET_WAI(pPacket)
++#ifdef CONFIG_TSO_SUPPORT
++		|| (RTMP_GET_PKT_CSO(pPacket) || RTMP_GET_PKT_TSO(pPacket))
++#endif /* CONFIG_TSO_SUPPORT */
+ 	)
+ 		return FALSE;
+ 	
+@@ -5499,6 +5537,15 @@ BOOLEAN rtmp_rx_done_handle(RTMP_ADAPTER *pAd)
+ 				}
+ #endif /* CONFIG_STA_SUPPORT */
+ 
++#ifdef RTMP_MAC_USB
++#ifdef CONFIG_CSO_SUPPORT
++					if (RTMP_TEST_MORE_FLAG(pAd, fASIC_CAP_CSO))
++					{
++						if (pRxInfo->vlan_taged_tcp_sum_err)
++							RTMP_SET_TCP_CHKSUM_FAIL(pRxPacket, TRUE);
++					}
++#endif /* CONFIG_CSO_SUPPORT */
++#endif /* RTMP_MAC_USB */
+ 
+ #ifdef HDR_TRANS_SUPPORT
+ 					rxblk.bHdrRxTrans = pRxInfo->ip_sum_err; /* RXINFO bit 31 */
+diff --git a/mt76x2/common/cmm_data_pci.c b/mt76x2/common/cmm_data_pci.c
+old mode 100644
+new mode 100755
+index a356bb8..5bdad94
+--- a/mt76x2/common/cmm_data_pci.c
++++ b/mt76x2/common/cmm_data_pci.c
+@@ -202,7 +202,11 @@ static VOID ral_write_txinfo(
+ 		nmac_info->tso = 0;
+ 		nmac_info->wiv = (bWiv) ? 1: 0;
+ 		nmac_info->QSEL = (pAd->bGenOneHCCA == TRUE) ? FIFO_HCCA : QueueSel;
+-
++		
++#ifdef CONFIG_CSO_SUPPORT
++		if (IS_ASIC_CAP(pAd, fASIC_CAP_CSO))
++			nmac_info->cso = 0;
++#endif /* CONFIG_CSO_SUPPORT */
+ 	}
+ #endif /* RLT_MAC */
+ 
+@@ -213,11 +217,41 @@ static VOID ral_write_txinfo(
+ 
+ 		omac_info->WIV = (bWiv) ? 1: 0;
+ 		omac_info->QSEL = (pAd->bGenOneHCCA == TRUE) ? FIFO_HCCA : QueueSel;
+-
++		
++#ifdef CONFIG_CSO_SUPPORT
++		if (IS_ASIC_CAP(pAd, fASIC_CAP_CSO))
++		{
++			omac_info->cso =1;
++			omac_info->uso = 0;
++			omac_info->TCPOffset = 0;
++			omac_info->IPOffset = 0;
++		}
++#endif /* CONFIG_CSO_SUPPORT */
+ 	}
+ #endif /* RTMP_MAC */
+ }
+ 
++#ifdef RLT_MAC
++static inline VOID rlt_update_txinfo(
++	IN RTMP_ADAPTER *pAd,
++	IN TXINFO_STRUC *pTxInfo,
++	IN TX_BLK *pTxBlk)
++{
++#if defined(CONFIG_CSO_SUPPORT) || defined(CONFIG_TSO_SUPPORT)
++	if (pTxBlk->naf_type) {
++		struct _TXINFO_NMAC_PKT *nmac_info = (struct _TXINFO_NMAC_PKT *)pTxInfo;
++#ifdef CONFIG_CSO_SUPPORT
++		nmac_info->cso = (pTxBlk->naf_type & NAF_TYPE_CSO) ? 1 : 0;
++#endif /* CONFIG_CSO_SUPPORT */
++#ifdef CONFIG_TSO_SUPPORT
++		nmac_info->tso = (pTxBlk->naf_type & NAF_TYPE_TSO) ? 1 : 0;
++#endif /* CONFIG_TSO_SUPPORT */
++	}
++#endif /* defined(CONFIG_CSO_SUPPORT) || defined(CONFIG_TSO_SUPPORT) */
++}
++#else
++#define rlt_update_txinfo(..) (void)0
++#endif /* RLT_MAC */
+ 
+ 
+ /*
+@@ -251,9 +285,16 @@ VOID ral_write_txd(
+ 	IN RTMP_ADAPTER *pAd,
+ 	IN TXD_STRUC *pTxD,
+ 	IN TXINFO_STRUC *pTxInfo,
++#ifdef CONFIG_CSO_SUPPORT
++	IN TX_BLK *txblk,
++#endif /* CONFIG_CSO_SUPPORT */
+ 	IN BOOLEAN bWIV,
+ 	IN UCHAR QueueSEL)
+ {
++#ifdef CONFIG_CSO_SUPPORT
++	if (txblk)
++		rlt_update_txinfo(pAd, pTxInfo, txblk);
++#endif /* CONFIG_CSO_SUPPORT */
+ 	/* Always use Long preamble before verifiation short preamble functionality works well.*/
+ 	/* Todo: remove the following line if short preamble functionality works*/
+ 	
+@@ -329,6 +370,16 @@ USHORT RtmpPCI_WriteSingleTxResource(
+ 	/*hwHeaderLen = ROUND_UP(pTxBlk->MpduHeaderLen, 4);*/
+ 	hwHeaderLen = pTxBlk->MpduHeaderLen + pTxBlk->HdrPadLen + TSO_SIZE;
+ 	inf_hdr_len = TXWISize + hwHeaderLen;
++#ifdef CONFIG_CSO_SUPPORT
++	/* NB: pChipCap->tx_hw_hdr_len = TXINFO_SIZE + pChipCap->TXWISize + TSO_SIZE;
++	 * 	   UINT tso_pos = pAd->chipCap.tx_hw_hdr_len - TSO_SIZE;
++	 */
++	rlt_tso_info_write(pAd,
++					(TSO_INFO *)(&pTxBlk->HeaderBuf[/* tso_pos */(TXINFO_SIZE + TXWISize)]),
++					pTxBlk,
++					inf_hdr_len);
++#endif /* CONFIG_CSO_SUPPORT */
++
+ 	NdisMoveMemory(pDMAHeaderBufVA,
+ 					(UCHAR *)(pTxBlk->HeaderBuf + TXINFO_SIZE),
+ 					inf_hdr_len);
+@@ -365,9 +416,17 @@ USHORT RtmpPCI_WriteSingleTxResource(
+ 
+ 	if ((pAd->CommonCfg.bMcastTest == TRUE) && 
+ 		(pTxBlk->TxFrameType == TX_MCAST_FRAME))
++#ifdef CONFIG_CSO_SUPPORT
++		ral_write_txd(pAd, pTxD, pTxInfo, pTxBlk, FALSE, FIFO_HCCA);
++#else
+ 		ral_write_txd(pAd, pTxD, pTxInfo, FALSE, FIFO_HCCA);
++#endif /* CONFIG_CSO_SUPPORT */
+ 	else
+-	        ral_write_txd(pAd, pTxD, pTxInfo, FALSE, FIFO_EDCA);
++#ifdef CONFIG_CSO_SUPPORT
++		ral_write_txd(pAd, pTxD, pTxInfo, pTxBlk, FALSE, FIFO_EDCA);
++#else
++		ral_write_txd(pAd, pTxD, pTxInfo, FALSE, FIFO_EDCA);
++#endif /* CONFIG_CSO_SUPPORT */
+ 
+ //+++Add by shiang for debug
+ //---Add by shiang for debug
+@@ -482,9 +541,17 @@ USHORT RtmpPCI_WriteMultiTxResource(
+ 
+ 	if ((pAd->CommonCfg.bMcastTest == TRUE) && 
+ 		(pTxBlk->TxFrameType == TX_MCAST_FRAME))
++#ifdef CONFIG_CSO_SUPPORT
++		ral_write_txd(pAd, pTxD, pTxInfo, pTxBlk, FALSE, FIFO_HCCA);
++#else
+ 		ral_write_txd(pAd, pTxD, pTxInfo, FALSE, FIFO_HCCA);
++#endif /* CONFIG_CSO_SUPPORT */
+ 	else
+-	        ral_write_txd(pAd, pTxD, pTxInfo, FALSE, FIFO_EDCA);
++#ifdef CONFIG_CSO_SUPPORT
++	        ral_write_txd(pAd, pTxD, pTxInfo, pTxBlk, FALSE, FIFO_EDCA);
++#else
++	ral_write_txd(pAd, pTxD, pTxInfo, FALSE, FIFO_EDCA);
++#endif /* CONFIG_CSO_SUPPORT */
+ 
+ #ifdef RT_BIG_ENDIAN
+ 	if (frameNum == 0)
+@@ -576,6 +643,15 @@ USHORT	RtmpPCI_WriteFragTxResource(
+ 	hwHeaderLen = pTxBlk->MpduHeaderLen + pTxBlk->HdrPadLen;
+ 
+ 	firstDMALen = TXWISize + hwHeaderLen;
++#ifdef CONFIG_CSO_SUPPORT
++	/* NB: pChipCap->tx_hw_hdr_len = TXINFO_SIZE + pChipCap->TXWISize + TSO_SIZE;
++	 * 	   UINT tso_pos = pAd->chipCap.tx_hw_hdr_len - TSO_SIZE;
++	 */
++	rlt_tso_info_write(pAd,
++					(TSO_INFO *)(&pTxBlk->HeaderBuf[/* tso_pos */(TXINFO_SIZE + TXWISize)]),
++					pTxBlk,
++					firstDMALen);
++#endif /* CONFIG_CSO_SUPPORT */
+ 	NdisMoveMemory(pDMAHeaderBufVA, (UCHAR *)(pTxBlk->HeaderBuf + TXINFO_SIZE), firstDMALen); 
+ 		
+ 	/* Build Tx Descriptor*/
+@@ -602,7 +678,7 @@ USHORT	RtmpPCI_WriteFragTxResource(
+ #else
+ 	NdisMoveMemory(pAd->TxSecureDMA[pTxBlk->QueIdx].AllocVa + (TxIdx * 4096), pTxBlk->pSrcBufData, pTxBlk->SrcBufLen);
+ 	pTxD->SDPtr1 = pAd->TxSecureDMA[pTxBlk->QueIdx].AllocPa + (TxIdx * 4096);
+-#endif
++#endif /* RT_SECURE_DMA */
+ 	pTxD->SDLen1 = pTxBlk->SrcBufLen;
+ 	if (pTxD->SDLen1 > 0)
+ 	{
+@@ -615,7 +691,11 @@ USHORT	RtmpPCI_WriteFragTxResource(
+ 		pTxD->LastSec1 = 0;
+ 	}
+ 	pTxD->Burst = 0;
++#ifdef CONFIG_CSO_SUPPORT
++	ral_write_txd(pAd, pTxD, pTxInfo, pTxBlk, FALSE, FIFO_EDCA);
++#else
+ 	ral_write_txd(pAd, pTxD, pTxInfo, FALSE, FIFO_EDCA);
++#endif /* CONFIG_CSO_SUPPORT */
+ 
+ #ifdef RT_BIG_ENDIAN
+ 	RTMPWIEndianChange(pAd, pDMAHeaderBufVA, TYPE_TXWI);
+@@ -686,8 +766,11 @@ int RtmpPCIMgmtKickOut(
+ #endif
+ 	pTxD->SDLen0 = pkt_len;
+ 	pTxD->Burst = 0;
+-
++#ifdef CONFIG_CSO_SUPPORT
++	ral_write_txd(pAd, pTxD, pTxInfo, NULL, TRUE, FIFO_MGMT);
++#else
+ 	ral_write_txd(pAd, pTxD, pTxInfo, TRUE, FIFO_MGMT);
++#endif /* CONFIG_CSO_SUPPORT */
+ 
+ #ifdef RT_BIG_ENDIAN
+ 	RTMPDescriptorEndianChange((UCHAR *)pTxD, TYPE_TXD);
+@@ -1940,7 +2023,11 @@ NDIS_STATUS MlmeHardTransmitTxRing(RTMP_ADAPTER *pAd, UCHAR QueIdx, PNDIS_PACKET
+ 	pTxD->SDLen1 = 0;
+ 	pTxD->SDPtr0 = SrcBufPA;
+ 	//pTxD->DMADONE = 0;
++#ifdef CONFIG_CSO_SUPPORT 
++	ral_write_txd(pAd, pTxD, pTxInfo, NULL, TRUE, FIFO_EDCA);
++#else 
+ 	ral_write_txd(pAd, pTxD, pTxInfo, TRUE, FIFO_EDCA);
++#endif /* CONFIG_CSO_SUPPORT */
+ 
+ #ifdef VHT_TXBF_SUPPORT
+ #ifdef DBG
+diff --git a/mt76x2/common/rtmp_init.c b/mt76x2/common/rtmp_init.c
+old mode 100644
+new mode 100755
+index b99f87c..96f3b02
+--- a/mt76x2/common/rtmp_init.c
++++ b/mt76x2/common/rtmp_init.c
+@@ -1486,6 +1486,11 @@ NDIS_STATUS	NICInitializeAsic(RTMP_ADAPTER *pAd, BOOLEAN bHardReset)
+ 
+ 	rtmp_mac_bcn_buf_init(pAd);
+ 
++#if defined(CONFIG_CSO_SUPPORT) || defined(CONFIG_TSO_SUPPORT)
++	// TODO: shiang-6590, we need configure TSO before can do tx/rx
++	rlt_net_acc_init(pAd);
++#endif /* CONFIG_CSO_SUPPORT || CONFIG_TSO_SUPPORT */
++
+ #ifdef RTMP_MAC
+ 	if (pAd->chipCap.hif_type == HIF_RTMP) {
+ 		/* Before program BBP, we need to wait BBP/RF get wake up.*/
+diff --git a/mt76x2/include/mac_ral/nmac/ral_nmac.h b/mt76x2/include/mac_ral/nmac/ral_nmac.h
+old mode 100644
+new mode 100755
+index 1aa5874..43895a7
+--- a/mt76x2/include/mac_ral/nmac/ral_nmac.h
++++ b/mt76x2/include/mac_ral/nmac/ral_nmac.h
+@@ -375,6 +375,32 @@ typedef struct GNU_PACKED _RX_WIFI_INFO{
+ 	UINT8 wifi_hdr[36];
+ }RX_WIFI_INFO;
+ 
++#if defined(CONFIG_CSO_SUPPORT) || defined(CONFIG_TSO_SUPPORT)
++/*
++	rsv: Reserved
++	tcp: packet type, tcp : 1, udp:0
++	tups: TCP/UDP header start offset (in unit of DWORD)
++	ips: IP start offset (in unit of byte), base address of ips is the beginning of TXWI
++	mss: Max Segment size (in unit of byte)
++*/
++#ifdef RT_BIG_ENDIAN
++typedef struct _TSO_INFO_{
++	UINT32 mss:16;
++	UINT32 ips:8;
++	UINT32 tups:6;	
++	UINT32 tcp:1;	
++	UINT32 rsv:1;
++}TSO_INFO;
++#else
++typedef struct _TSO_INFO_{
++	UINT32 rsv:1;
++	UINT32 tcp:1;
++	UINT32 tups:6;
++	UINT32 ips:8;
++	UINT32 mss:16;
++}TSO_INFO;
++#endif /* RT_BIG_ENDIAN */
++#endif /* defined(CONFIG_CSO_SUPPORT) || defined(CONFIG_TSO_SUPPORT) */
+ 
+ 
+ 
+diff --git a/mt76x2/include/mac_ral/rtmp_mac.h b/mt76x2/include/mac_ral/rtmp_mac.h
+old mode 100644
+new mode 100755
+index f7146bd..c1e4426
+--- a/mt76x2/include/mac_ral/rtmp_mac.h
++++ b/mt76x2/include/mac_ral/rtmp_mac.h
+@@ -177,7 +177,12 @@ typedef	struct GNU_PACKED _RXINFO_STRUC {
+ #endif
+ 
+ 
++#ifdef CONFIG_TSO_SUPPORT
++#define TSO_SIZE		4
++#else
+ #define TSO_SIZE		0
++#endif /* CONFIG_TSO_SUPPORT */
++
+ 
+ 
+ /* ================================================================================= */
+diff --git a/mt76x2/include/os/pkt_meta.h b/mt76x2/include/os/pkt_meta.h
+old mode 100644
+new mode 100755
+index 86b8dc2..7edc649
+--- a/mt76x2/include/os/pkt_meta.h
++++ b/mt76x2/include/os/pkt_meta.h
+@@ -333,9 +333,46 @@
+ 
+ 
+ /* [CB_OFF + 26]  */
++#ifdef CONFIG_CSO_SUPPORT
++#define RTMP_SET_TCP_CHKSUM_FAIL(_p, _flg) 	(PACKET_CB(_p, 26) = _flg);
++#define RTMP_GET_TCP_CHKSUM_FAIL(_p)		(PACKET_CB(_p, 26))
++#endif /* CONFIG_CSO_SUPPORT */
+ 
+ 
+ /* [CB_OFF + 27 ~ 31]  */
++#ifdef CONFIG_TSO_SUPPORT
++#define NAF_TYPE_CSO	1<<0
++#define NAF_TYPE_TSO	1<<1
++
++#define RTMP_SET_PKT_CSO(_p, _flg)	((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+27]) |= ((_flg) << 0))
++#define RTMP_GET_PKT_CSO(_p)		((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+27]) & NAF_TYPE_CSO)
++#define RTMP_SET_PKT_TSO(_p, _flg)	((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+27]) |= ((_flg)<<1))
++#define RTMP_GET_PKT_TSO(_p)		((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+27]) & NAF_TYPE_TSO)
++#define RTMP_GET_PKT_NAF_TYPE(_p)	((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+27]) & (NAF_TYPE_CSO | NAF_TYPE_TSO))
++
++#define RTMP_SET_PKT_TCP(_p, _flg)	((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+27]) |= ((_flg) << 2))
++#define RTMP_GET_PKT_TCP(_p)		((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+27]) & (1<<2))
++
++#define RTMP_SET_PKT_SG(_p, _flg)	((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+27]) |= ((_flg) << 3))
++#define RTMP_GET_PKT_SG(_p)		((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+27]) & (1<<3))
++
++#define RTMP_SET_PKT_TUPS(_p, _tups)	((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+28]) = (_tups))
++#define RTMP_GET_PKT_TUPS(_p)		((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+28]))
++
++#define RTMP_SET_PKT_IPS(_p, _ips)	((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+29]) = (_ips))
++#define RTMP_GET_PKT_IPS(_p)		((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+29]))
++
++#define RTMP_SET_PKT_MSS(_p, _mss)	\
++	do {\
++		(RTPKT_TO_OSPKT(_p)->cb[CB_OFF+30]) = ((_mss) & 0xff);\
++		(RTPKT_TO_OSPKT(_p)->cb[CB_OFF+31]) = ((_mss) >> 8);\
++	}while(0)
++
++#define RTMP_GET_PKT_MSS(_p)	\
++	((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+30]) | \
++	((RTPKT_TO_OSPKT(_p)->cb[CB_OFF+31]) << 8))
++#endif /* CONFIG_TSO_SUPPORT */
++
+ 
+ 
+ /* [CB_OFF + 32]  */
+diff --git a/mt76x2/include/os/rt_linux.h b/mt76x2/include/os/rt_linux.h
+old mode 100644
+new mode 100755
+index ac3465a..b12523a
+--- a/mt76x2/include/os/rt_linux.h
++++ b/mt76x2/include/os/rt_linux.h
+@@ -1591,6 +1591,8 @@ VOID __exit rt2880_module_exit(void);
+ #define RA_WEXT 	0
+ #define RA_NETLINK  	1
+ 
+-
++#define LEA_DBG(_fmt, ...) \
++	printk("[ %s:%u ] " _fmt, __func__, __LINE__, ##__VA_ARGS__)
++	
+ #endif /* __RT_LINUX_H__ */
+ 
+diff --git a/mt76x2/include/rt_os_util.h b/mt76x2/include/rt_os_util.h
+old mode 100644
+new mode 100755
+index f4e8e5d..b396eb3
+--- a/mt76x2/include/rt_os_util.h
++++ b/mt76x2/include/rt_os_util.h
+@@ -255,6 +255,38 @@ PUCHAR RtmpOsPktHeadBufExtend(PNDIS_PACKET pNetPkt, UINT len);
+ VOID RtmpOsPktReserve(PNDIS_PACKET pNetPkt, UINT len);
+ 
+ VOID RtmpOsPktInfPpaSend(PNDIS_PACKET pNetPkt);
++/* XXX:
++ * 	In my opinion, mostly, it's a bad idea to unwrap anything for just merely possbile
++ * performace speed-up. Use *inline* when you think a function is small enough, and what's
++ * more, was used in just a few places.
++ *																--Lea, 2017/04/01
++ */
++static inline VOID RtmpOsPktRcvHandle(PNDIS_PACKET pNetPkt)
++{
++	struct sk_buff *pRxPkt = RTPKT_TO_OSPKT(pNetPkt);
++#ifdef CONFIG_CSO_SUPPORT
++	struct net_device *pNetDev =  GET_OS_PKT_NETDEV(pNetPkt);
++#endif /* CONFIG_CSO_SUPPORT */
++
++#ifdef CONFIG_CSO_SUPPORT
++	if (pNetDev->features & NETIF_F_HW_CSUM)
++	{
++		if (RTMP_GET_TCP_CHKSUM_FAIL(pNetPkt))
++			pRxPkt->ip_summed = CHECKSUM_NONE;
++		else
++			pRxPkt->ip_summed = CHECKSUM_UNNECESSARY;
++	}
++#endif /* CONFIG_CSO_SUPPORT */
++
++	netif_rx(pRxPkt);
++}
++static inline VOID RtmpOsPktProtocolAssign(PNDIS_PACKET pNetPkt)
++{
++	struct sk_buff *pRxPkt = RTPKT_TO_OSPKT(pNetPkt);
++
++	pRxPkt->protocol = eth_type_trans(pRxPkt, pRxPkt->dev);
++}
++
+ VOID RtmpOsPktInit(PNDIS_PACKET pNetPkt, PNET_DEV pNetDev, UCHAR *buf, USHORT len);
+ 
+ PNDIS_PACKET RtmpOsPktIappMakeUp(PNET_DEV pNetDev, UINT8 *pMac);
+diff --git a/mt76x2/include/rtmp.h b/mt76x2/include/rtmp.h
+old mode 100644
+new mode 100755
+index ca49914..970fa64
+--- a/mt76x2/include/rtmp.h
++++ b/mt76x2/include/rtmp.h
+@@ -6095,6 +6095,14 @@ typedef struct _TX_BLK {
+ 	UCHAR				TxNDPSndgMcs;
+ #endif /* TXBF_SUPPORT */
+ 
++#if defined(CONFIG_CSO_SUPPORT) || defined(CONFIG_TSO_SUPPORT)
++	UCHAR				naf_type;
++#endif /* defined(CONFIG_CSO_SUPPORT) || defined(CONFIG_TSO_SUPPORT) */
++#ifdef CONFIG_TSO_SUPPORT
++	TSO_INFO			tso_info;
++#endif /* CONFIG_TSO_SUPPORT */
++
++
+ #ifdef TX_PKT_SG
+ 	PACKET_INFO pkt_info;
+ #endif /* TX_PKT_SG */
+@@ -6893,6 +6901,9 @@ VOID ral_write_txd(
+ 	IN RTMP_ADAPTER *pAd,
+ 	IN TXD_STRUC *pTxD,
+ 	IN TXINFO_STRUC *pTxInfo,
++#ifdef CONFIG_CSO_SUPPORT
++	IN TX_BLK *txblk,
++#endif /* CONFIG_CSO_SUPPORT */
+ 	IN BOOLEAN bWIV,
+ 	IN UCHAR QSEL);
+ #endif /* RTMP_MAC_PCI */
+@@ -11142,6 +11153,11 @@ VOID asic_tune_be_wmm(
+ 	IN USHORT num);
+ #endif /* MULTI_CLIENT_SUPPORT */
+ 
++#if defined(CONFIG_CSO_SUPPORT) || defined(CONFIG_TSO_SUPPORT)
++INT rlt_net_acc_init(RTMP_ADAPTER *pAd);
++INT rlt_tso_info_write(RTMP_ADAPTER *pAd, TSO_INFO *tinfo, TX_BLK *pTxBlk, int hdr_len);
++#endif /* defined(CONFIG_CSO_SUPPORT) || defined(CONFIG_TSO_SUPPORT) */
++
+ INT set_rf(RTMP_ADAPTER *pAd, PSTRING arg);
+ INT set_rf_bit(RTMP_ADAPTER *pAd, PSTRING arg);
+ int write_reg(RTMP_ADAPTER *ad, u32 base, u16 offset, u32 value);
+diff --git a/mt76x2/naf/cso.c b/mt76x2/naf/cso.c
+old mode 100644
+new mode 100755
+index fd35f2a..8d68c3d
+--- a/mt76x2/naf/cso.c
++++ b/mt76x2/naf/cso.c
+@@ -24,4 +24,10 @@
+ 	--------	----------		----------------------------------------------
+ */
+ 
++#ifdef CONFIG_CSO_SUPPORT
++
++#include "rt_config.h"
++
++
++#endif /* CONFIG_CSO_SUPPORT */
+ 
+diff --git a/mt76x2/naf/net_acc.c b/mt76x2/naf/net_acc.c
+old mode 100644
+new mode 100755
+index a5455b2..d81576b
+--- a/mt76x2/naf/net_acc.c
++++ b/mt76x2/naf/net_acc.c
+@@ -28,4 +28,73 @@
+ #include "rt_config.h"
+ 
+ 
++#if defined(CONFIG_CSO_SUPPORT) || defined(CONFIG_TSO_SUPPORT)
++VOID dump_tsoinfo(TSO_INFO *tinfo)
++{
++	DBGPRINT(RT_DEBUG_OFF, ("TSO_INFO:\n"));
++	hex_dump("\traw data", (UCHAR *)tinfo, sizeof(TSO_INFO));	
++	DBGPRINT(RT_DEBUG_OFF,  ("\ttcp=%d\n", tinfo->tcp));
++	DBGPRINT(RT_DEBUG_OFF,  ("\ttups=%d\n", tinfo->tups));
++	DBGPRINT(RT_DEBUG_OFF,  ("\tips=%d\n", tinfo->ips));
++	DBGPRINT(RT_DEBUG_OFF,  ("\tmss=%d\n", tinfo->mss));
++}
++
++#ifdef CONFIG_TSO_SUPPORT
++INT rlt_tso_info_write(RTMP_ADAPTER *pAd, TSO_INFO *tinfo, TX_BLK *pTxBlk, int hdr_len)
++{
++	ULONG offset = GET_OS_PKT_DATAPTR(pTxBlk->pPacket) - pTxBlk->pSrcBufData + hdr_len;
++	
++	tinfo->ips = pTxBlk->tso_info.ips + offset;
++	tinfo->tups = pTxBlk->tso_info.tups;
++	tinfo->tcp = pTxBlk->tso_info.tcp;
++	tinfo->mss = pTxBlk->tso_info.mss;
++
++	if (pTxBlk->naf_type & NAF_TYPE_TSO)
++		dump_tsoinfo(tinfo);
++	return TRUE;
++}
++#endif /* CONFIG_TSO_SUPPORT */
++
++INT rlt_net_acc_exit(RTMP_ADAPTER *pAd)
++{
++
++	return TRUE;
++}
++
++
++INT rlt_net_acc_init(RTMP_ADAPTER *pAd)
++{
++	UINT32 val;
++
++#ifdef RT5592
++	if (IS_ASIC_CAP(pAd, fASIC_CAP_CSO))
++		rtmp_cso_enable(pAd);
++#endif /* RT5592 */
++
++#ifdef RT65xx
++	if (IS_RT65XX(pAd)) {
++		//RTMP_IO_READ32(pAd, FCE_L2_STUFF, &val);
++		val = 0x3ff023b;
++		if (IS_ASIC_CAP(pAd, fASIC_CAP_CSO | fASIC_CAP_TSO))
++			val |= 0x8; /* enable TSO_INFO field removal operation for FCE */
++		else
++			val &= (~0x8);
++		RTMP_IO_WRITE32(pAd, FCE_L2_STUFF, val);
++
++		if (IS_ASIC_CAP(pAd, fASIC_CAP_TSO)) {
++			RTMP_IO_WRITE32(pAd, TSO_CTRL, 0x50050);
++		} else {
++			RTMP_IO_WRITE32(pAd, TSO_CTRL, 0);
++		}
++		
++		if (IS_ASIC_CAP(pAd, fASIC_CAP_CSO)) {
++			RTMP_IO_WRITE32(pAd, FCE_PARAMETERS, 0xf6157f0f);
++			RTMP_IO_WRITE32(pAd, FCE_CSO, 0x30f); /* MT7650E2 only support CSO RX. */
++		}
++	}
++#endif /* RT65xx */
++
++	return TRUE;
++}
++#endif /* defined(CONFIG_CSO_SUPPORT) || defined(CONFIG_TSO_SUPPORT) */
+ 
+diff --git a/mt76x2/naf/tso.c b/mt76x2/naf/tso.c
+old mode 100644
+new mode 100755
+index fd35f2a..0ffdabb
+--- a/mt76x2/naf/tso.c
++++ b/mt76x2/naf/tso.c
+@@ -24,4 +24,10 @@
+ 	--------	----------		----------------------------------------------
+ */
+ 
++#ifdef CONFIG_TSO_SUPPORT
++
++#include "rt_config.h"
++
++
++#endif /* CONFIG_TSO_SUPPORT */
+ 
+diff --git a/mt76x2/os/linux/rt_main_dev.c b/mt76x2/os/linux/rt_main_dev.c
+old mode 100644
+new mode 100755
+index c4622b7..b4b12c7
+--- a/mt76x2/os/linux/rt_main_dev.c
++++ b/mt76x2/os/linux/rt_main_dev.c
+@@ -408,6 +408,9 @@ PNET_DEV RtmpPhyNetDevInit(VOID *pAd, RTMP_OS_NETDEV_OP_HOOK *pNetDevHook)
+ {
+ 	struct net_device *net_dev = NULL;
+ 	ULONG InfId, OpMode;
++#if defined(CONFIG_CSO_SUPPORT) || defined(CONFIG_TSO_SUPPORT)
++	UCHAR flg;
++#endif /* defined(CONFIG_CSO_SUPPORT) || defined(CONFIG_TSO_SUPPORT) */
+ 
+ 
+ 	RTMP_DRIVER_MAIN_INF_GET(pAd, &InfId);
+@@ -473,7 +476,20 @@ PNET_DEV RtmpPhyNetDevInit(VOID *pAd, RTMP_OS_NETDEV_OP_HOOK *pNetDevHook)
+ 	SET_MODULE_OWNER(net_dev);
+ #endif 
+ 
+-
++#ifdef CONFIG_CSO_SUPPORT
++	RTMP_DRIVER_ADAPTER_CSO_SUPPORT_TEST(pAd, &flg);
++	if (flg) {
++		net_dev->features |= NETIF_F_HW_CSUM; printk("MT76X2E:HW IP/TCP/UDP checksum enabled\n");}
++#endif /* CONFIG_CSO_SUPPORT */
++
++#ifdef CONFIG_TSO_SUPPORT
++	RTMP_DRIVER_ADAPTER_TSO_SUPPORT_TEST(pAd, &flg);
++	if (flg) {
++		net_dev->features |= NETIF_F_SG;
++		net_dev->features |= NETIF_F_TSO;
++		net_dev->features |= NETIF_F_TSO6;printk("MT76X2E:HW Scatter/Gather TX offload enabled\n");
++	}
++#endif /* CONFIG_CSO_SUPPORT */
+ 
+ 	return net_dev;
+ }
+diff --git a/mt76x2/os/linux/rt_profile.c b/mt76x2/os/linux/rt_profile.c
+old mode 100644
+new mode 100755
+index c0187f1..83c2cff
+--- a/mt76x2/os/linux/rt_profile.c
++++ b/mt76x2/os/linux/rt_profile.c
+@@ -778,12 +778,14 @@ void announce_802_3_packet(
+ 				{
+ 					return;
+ 				}
+-				netif_rx(pRxPkt);
++				/* netif_rx(pRxPkt); */
++				RtmpOsPktRcvHandle(pNetPkt);
+ 			}
+ 			else if (retVal == 0)
+ 			{
+ 				pRxPkt->protocol = eth_type_trans(pRxPkt, pRxPkt->dev);
+-				netif_rx(pRxPkt);
++				/* netif_rx(pRxPkt); */
++				RtmpOsPktRcvHandle(pNetPkt);
+ 			}
+ 			else
+ 			{
+@@ -794,7 +796,8 @@ void announce_802_3_packet(
+ 		else
+ 		{
+ 			pRxPkt->protocol = eth_type_trans(pRxPkt, pRxPkt->dev);
+-			netif_rx(pRxPkt);
++			/* netif_rx(pRxPkt); */
++			RtmpOsPktRcvHandle(pNetPkt);
+ 		}
+ 
+ 		return;
+@@ -829,7 +832,8 @@ void announce_802_3_packet(
+ 		if (ra_sw_nat_hook_rx(pRxPkt))
+ 		{
+ 			FOE_MAGIC_TAG(pRxPkt) = 0;
+-			netif_rx(pRxPkt);
++			/* netif_rx(pRxPkt); */
++			RtmpOsPktRcvHandle(pNetPkt);
+ 		}
+ 		return;
+ 	}
+@@ -948,7 +952,8 @@ void announce_802_3_packet(
+ 		}
+ #endif /* CONFIG_WIFI_PKT_FWD */
+ 
+-	netif_rx(pRxPkt);
++	/* netif_rx(pRxPkt); */
++	RtmpOsPktRcvHandle(pNetPkt);
+ }
+ 
+ 
+diff --git a/mt76x2/os/linux/rt_rbus_pci_drv.c b/mt76x2/os/linux/rt_rbus_pci_drv.c
+old mode 100644
+new mode 100755
+index ab30b24..f2e18d0
+--- a/mt76x2/os/linux/rt_rbus_pci_drv.c
++++ b/mt76x2/os/linux/rt_rbus_pci_drv.c
+@@ -969,23 +969,23 @@ VOID RTMPHandleInterrupt(VOID *pAdSrc)
+ 
+ 	if (IntSource == 0x0)
+ 		pAd->fake_int_counter++;
+-
++		
+ #ifdef RLT_MAC
+ 	if (pAd->chipCap.hif_type == HIF_RLT) {
+-		INT_RX_DATA = RLT_INT_RX_DATA;
+-		INT_RX_CMD = RLT_INT_RX_CMD;
+-		TxCoherent = RLT_TxCoherent;
+-		RxCoherent = RLT_RxCoherent;
+-		FifoStaFullInt = RLT_FifoStaFullInt;
+-		INT_MGMT_DLY = RLT_INT_MGMT_DLY;
+-		INT_HCCA_DLY = RLT_INT_HCCA_DLY;
++		INT_RX_DATA = RLT_INT_RX_DATA; 		/* 1<<0		= 0x1 */
++		INT_RX_CMD = RLT_INT_RX_CMD; 		/* 1<<1		= 0x2 */
++		TxCoherent = RLT_TxCoherent;		/* 1<<17	= 0x20000 */
++		RxCoherent = RLT_RxCoherent;		/* 1<<16	= 0x10000 */
++		FifoStaFullInt = RLT_FifoStaFullInt; /* 1<<22 	= 0x400000 */
++		INT_MGMT_DLY = RLT_INT_MGMT_DLY; 	/* 1<<13 	= 0x2000 */
++		INT_HCCA_DLY = RLT_INT_HCCA_DLY;	/* 1<<12	= 0x1000 */
+ 		INT_AC3_DLY = RLT_INT_AC3_DLY;
+ 		INT_AC2_DLY = RLT_INT_AC2_DLY;
+ 		INT_AC1_DLY = RLT_INT_AC1_DLY;
+-		INT_AC0_DLY = RLT_INT_AC0_DLY;
+-		PreTBTTInt = RLT_PreTBTTInt;
+-		TBTTInt = RLT_TBTTInt;
+-		GPTimeOutInt = RLT_GPTimeOutInt;
++		INT_AC0_DLY = RLT_INT_AC0_DLY;		/* 1<<4		= 0x10 */
++		PreTBTTInt = RLT_PreTBTTInt;		/* 1<<21	= 0x200000 */
++		TBTTInt = RLT_TBTTInt;				/* 1<<20	= 0x100000 */
++		GPTimeOutInt = RLT_GPTimeOutInt;	/* 1<<24	= 0x1000000 */
+ #ifdef CARRIER_DETECTION_SUPPORT
+ 		RadarInt = RLT_RadarInt;
+ #endif /* CARRIER_DETECTION_SUPPORT */
+@@ -1022,7 +1022,7 @@ VOID RTMPHandleInterrupt(VOID *pAdSrc)
+ 
+ #ifdef  INF_VR9_HW_INT_WORKAROUND	
+ redo: 
+-#endif 
++#endif /* INF_VR9_HW_INT_WORKAROUND */
+ 
+ 	pAd->bPCIclkOff = FALSE;
+ 
+@@ -1200,7 +1200,8 @@ redo:
+ 	//if (IntSource & INT_TX_DLY) {
+ #ifdef RLT_MAC
+ 	if (pAd->chipCap.hif_type == HIF_RLT)
+-	{
++	{	
++		/* INT_TX_DLY: 1<<27 = 0x08000000 */
+ 		if ( (IntSource & INT_TX_DLY) && (IntSource & INT_AC0_DLY) ) {
+ 			RTMP_INT_LOCK(&pAd->LockInterrupt, flags);
+ 			pAd->int_pending |= INT_TX_DLY;
+diff --git a/mt76x2/common/rtmp_init.c b/mt76x2/common/rtmp_init.c
+index b99f87c..8504fdc 100644
+--- a/mt76x2/common/rtmp_init.c
++++ b/mt76x2/common/rtmp_init.c
+@@ -4676,6 +4676,20 @@ INT RtmpRaDevCtrlInit(VOID *pAdSrc, RTMP_INF_TYPE infType)
+ }
+ #endif /* MULTIPLE_CARD_SUPPORT */
+ 
++#ifdef CONFIG_CSO_SUPPORT
++	if (pAd->chipCap.asic_caps & fASIC_CAP_CSO)
++	{
++		RTMP_SET_MORE_FLAG(pAd, fASIC_CAP_CSO);
++		printk("MT76X2E:HW IP/TCP/UDP checksum support\n");
++	}
++#endif /* CONFIG_CSO_SUPPORT */
++#ifdef CONFIG_TSO_SUPPORT
++	if (pAd->chipCap.asic_caps & fASIC_CAP_TSO)
++	{
++		RTMP_SET_MORE_FLAG(pAd, fASIC_CAP_TSO);
++		printk("MT76X2E:HW Scatter/Gather TX offload support\n");
++	}
++#endif /* CONFIG_TSO_SUPPORT */
+ 
+ #ifdef MCS_LUT_SUPPORT
+ 	if (pAd->chipCap.asic_caps & fASIC_CAP_MCS_LUT) {
+
+--- a/mt76x2/sta/rtmp_data.c
++++ b/mt76x2/sta/rtmp_data.c
+@@ -1192,6 +1192,16 @@ VOID STAHandleRxDataFrame_Hdr_Trns(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk)
+ 		}
+ #endif /* WFA_VHT_PF */
+ 	}
++	
++#ifdef RTMP_MAC_USB
++#ifdef CONFIG_TSO_SUPPORT
++	if (RTMP_TEST_MORE_FLAG(pAd, fRTMP_ADAPTER_TSO_SUPPORT))
++	{
++		if (pRxInfo->vlan_taged_tcp_sum_err)
++			RTMP_SET_TCP_CHKSUM_FAIL(pRxPacket, TRUE);
++	}
++#endif /* CONFIG_TSO_SUPPORT */
++#endif /* RTMP_MAC_USB */
+ 
+ 
+ #ifdef RLT_MAC
+@@ -3025,6 +3035,12 @@ VOID STA_AMPDU_Frame_Tx(
+ 			if (TX_BLK_TEST_FLAG(pTxBlk, fTX_bSwEncrypt)) {
+ 				UCHAR iv_offset = 0, ext_offset = 0;
+ 
++#ifdef CONFIG_TSO_SUPPORT		
++			if (pTxBlk->naf_type)			
++				DBGPRINT(RT_DEBUG_ERROR, ("%s():Error, try to encrypt a pkt marked to use NAF(%d)!\n",
++						__FUNCTION__, pTxBlk->naf_type));
++#endif /* CONFIG_TSO_SUPPORT */
++
+ 				/*
+ 				   if original Ethernet frame contains no LLC/SNAP, 
+ 				   then an extra LLC/SNAP encap is required
+@@ -3504,7 +3520,12 @@ VOID STA_Legacy_Frame_Tx(RTMP_ADAPTER *pAd, TX_BLK *pTxBlk)
+ #ifdef SOFT_ENCRYPT
+ 	if (TX_BLK_TEST_FLAG(pTxBlk, fTX_bSwEncrypt)) {
+ 		UCHAR iv_offset = 0, ext_offset = 0;
+-
++		
++#ifdef CONFIG_TSO_SUPPORT
++		if (pTxBlk->naf_type)
++			DBGPRINT(RT_DEBUG_ERROR, ("%s():Error, try to encrypt a pkt marked to use NAF(%d)!\n",
++							__FUNCTION__, pTxBlk->naf_type));
++#endif /* CONFIG_TSO_SUPPORT */
+ 		/*
+ 		   if original Ethernet frame contains no LLC/SNAP, 
+ 		   then an extra LLC/SNAP encap is required 
+diff --git a/mt76x2_ap/Makefile b/mt76x2_ap/Makefile
+index e665420..118fa8b 100644
+--- a/mt76x2_ap/Makefile
++++ b/mt76x2_ap/Makefile
+@@ -20,6 +20,10 @@ ifeq ($(CONFIG_RT_SECOND_CARD),7612)
+ CHIP_MT76X2 = y
+ endif
+ 
++ifeq ($(CONFIG_MT76X2_AP_CSO_SUPPORT),y)
++CONFIG_RT_CSO=y
++endif
++
+ obj-$(CONFIG_MT76X2_AP) += $(RT_DRV_NAME).o
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/common/crypt_md5.o
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/common/crypt_sha2.o
+@@ -303,6 +307,10 @@ ifeq ($(CONFIG_RT_FIRST_CARD),2860)
+ EXTRA_CFLAGS += -DRT_SOC_SUPPORT
+ endif
+ 
++ifeq ($(CONFIG_MT76X2_AP_HDR_TRANS_SUPPORT),y)
++EXTRA_CFLAGS += -DHDR_TRANS_TX_SUPPORT
++endif
++
+ # do not lock CountryRegion from EEPROM
+ EXTRA_CFLAGS += -DEEPROM_COUNTRY_UNLOCK
+ 
+-- 
+2.10.1
+

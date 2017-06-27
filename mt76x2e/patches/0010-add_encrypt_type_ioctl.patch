@@ -1,0 +1,56 @@
+--- a/mt76x2/ap/ap_cfg.c
++++ b/mt76x2/ap/ap_cfg.c
+@@ -4520,7 +4520,12 @@ INT RTMPAPQueryInformation(
+ 	case OID_802_11_AUTHENTICATION_MODE:
+                 DBGPRINT(RT_DEBUG_TRACE, ("Query::OID_802_11_AUTHENTICATION_MODE \n"));
+ 	        wrq->u.data.length = sizeof(NDIS_802_11_AUTHENTICATION_MODE);
+-	        AuthMode=pAd->ApCfg.MBSSID[pObj->ioctl_if].wdev.AuthMode;
++#ifdef APCLI_SUPPORT
++			if (pObj->ioctl_if_type == INT_APCLI)
++				AuthMode=pAd->ApCfg.ApCliTab[apidx].wdev.AuthMode;
++			else
++#endif
++	        	AuthMode=pAd->ApCfg.MBSSID[pObj->ioctl_if].wdev.AuthMode;
+ 	        Status = copy_to_user(wrq->u.data.pointer, &AuthMode, wrq->u.data.length);
+                 break;
+ 
+@@ -4907,7 +4912,27 @@ INT RTMPAPQueryInformation(
+ 				Status = -EFAULT;
+ 			}
+ 			break;
+-
++		case RT_OID_GET_ENCRYPTYPE:
++			{
++				wrq->u.data.length = sizeof(UINT);;
++#ifdef APCLI_SUPPORT
++				if (pObj->ioctl_if_type == INT_APCLI)
++				{
++					INT ApCliIdx = pObj->ioctl_if;
++					if (copy_to_user(wrq->u.data.pointer, &pAd->ApCfg.ApCliTab[ApCliIdx].wdev.WepStatus,wrq->u.data.length))
++					{
++						Status = -EFAULT;
++					}
++				}else
++#endif
++				{
++					if (copy_to_user(wrq->u.data.pointer, &pAd->ApCfg.MBSSID[pObj->ioctl_if].wdev.WepStatus, wrq->u.data.length))
++					{
++						Status = -EFAULT;
++					}
++				}
++				break;
++			}
+ 		case OID_802_11_ASSOLIST:
+ 			DBGPRINT(RT_DEBUG_TRACE, ("Query::OID_802_11_ASSOLIST \n"));
+ 			RTMPAPGetAssoMacTable(pAd,wrq);
+--- a/mt76x2/include/oid.h
++++ b/mt76x2/include/oid.h
+@@ -1122,6 +1122,8 @@ typedef struct _NDIS_802_11_CAPABILITY {
+ #endif /* CONFIG_AP_SUPPORT */
+ #endif /* LLTD_SUPPORT */
+ 
++#define RT_OID_GET_ENCRYPTYPE						0x0999
++
+ #ifdef WSC_NFC_SUPPORT
+ #define RT_OID_NFC_STATUS							0x0930
+ #endif /* WSC_NFC_SUPPORT */

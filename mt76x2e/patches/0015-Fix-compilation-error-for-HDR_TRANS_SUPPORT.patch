@@ -1,0 +1,438 @@
+From de591cf06998c03877255036c03d04d34ad5474c Mon Sep 17 00:00:00 2001
+From: Lea <liweiqiang@xcloud.cc>
+Date: Wed, 5 Apr 2017 17:17:19 +0800
+Subject: [PATCH 1/2] Fix compilation error for HDR_TRANS_SUPPORT
+
+---
+ mt76x2/ap/ap_data.c                    | 28 +++++++++---------
+ mt76x2/common/ba_action.c              | 10 +++----
+ mt76x2/common/cmm_data.c               | 32 +++++++++++++-------
+ mt76x2/common/cmm_data_pci.c           | 34 +++++++++++++++++-----
+ mt76x2/include/ap.h                    |  6 ++++
+ mt76x2/include/dot11_base.h            |  2 +-
+ mt76x2/include/mac_ral/nmac/ral_nmac.h |  7 +++++
+ mt76x2/include/rt_os_util.h            |  4 +++
+ mt76x2/include/rtmp_def.h              |  2 +-
+ mt76x2/mcu/mcu_and.c                   |  2 +-
+ mt76x2_ap/Makefile                     |  3 +-
+ 11 files changed, 89 insertions(+), 41 deletions(-)
+ mode change 100644 => 100755 mt76x2/common/ba_action.c
+ mode change 100644 => 100755 mt76x2/include/ap.h
+ mode change 100644 => 100755 mt76x2/include/dot11_base.h
+ mode change 100644 => 100755 mt76x2/include/rtmp_def.h
+ mode change 100644 => 100755 mt76x2/mcu/mcu_and.c
+
+diff --git a/mt76x2/ap/ap_data.c b/mt76x2/ap/ap_data.c
+index 6d8dc35..212a80c 100755
+--- a/mt76x2/ap/ap_data.c
++++ b/mt76x2/ap/ap_data.c
+@@ -865,13 +865,13 @@ static inline VOID APBuildCacheWifiInfo(
+ {
+ 	MAC_TABLE_ENTRY	*pMacEntry;
+ 
+-	PWIFI_INFO_STRUC pWI;
++	TX_WIFI_INFO *pWI;
+ 
+-	pWI = (PWIFI_INFO_STRUC)pWiInfo;
++	pWI = (TX_WIFI_INFO *)pWiInfo;
+ 	pMacEntry = pTxBlk->pMacEntry;
+ 
+ 	/* WIFI INFO size : 4 octets */
+-	pTxBlk->MpduHeaderLen = WIFI_INFO_SIZE;	
++	pTxBlk->MpduHeaderLen = TX_WIFI_INFO_SIZE;	
+ 
+ 	/* More Bit */
+ 	pWI->field.More_Data = TX_BLK_TEST_FLAG(pTxBlk, fTX_bMoreData);
+@@ -890,16 +890,16 @@ static inline VOID APBuildWifiInfo(
+ 	IN  TX_BLK          *pTxBlk)
+ {
+ 	UINT8 TXWISize = pAd->chipCap.TXWISize;
+-	PWIFI_INFO_STRUC pWI;
++	TX_WIFI_INFO *pWI;
+ 
+ 
+ 	/* WIFI INFO size : 4 octets */
+-	pTxBlk->MpduHeaderLen = WIFI_INFO_SIZE;
++	pTxBlk->MpduHeaderLen = TX_WIFI_INFO_SIZE;
+ 
+ 	pWI =
+-	    (WIFI_INFO_STRUC *) & pTxBlk->HeaderBuf[TXINFO_SIZE + TXWISize];
++	    (TX_WIFI_INFO *) & pTxBlk->HeaderBuf[TXINFO_SIZE + TXWISize];
+ 
+-	NdisZeroMemory(pWI, WIFI_INFO_SIZE);
++	NdisZeroMemory(pWI, TX_WIFI_INFO_SIZE);
+ 
+ #ifdef APCLI_SUPPORT
+ 	if (IS_ENTRY_APCLI(pTxBlk->pMacEntry))
+@@ -1855,7 +1855,7 @@ VOID AP_AMPDU_Frame_Tx_Hdr_Trns(
+ 	MAC_TABLE_ENTRY	*pMacEntry;
+ 	PQUEUE_ENTRY	pQEntry;
+ 	UINT8 TXWISize = pAd->chipCap.TXWISize;
+-	PWIFI_INFO_STRUC pWI;
++	TX_WIFI_INFO *pWI;
+ 	
+ 	ASSERT(pTxBlk);
+ 
+@@ -1891,7 +1891,7 @@ VOID AP_AMPDU_Frame_Tx_Hdr_Trns(
+ 		NdisMoveMemory((PUCHAR)
+ 			       (&pTxBlk->HeaderBuf[TXINFO_SIZE]),
+ 			       (PUCHAR) (&pMacEntry->CachedBuf[0]),
+-			       TXWISize + WIFI_INFO_SIZE);
++			       TXWISize + TX_WIFI_INFO_SIZE);
+ 
+ 		pWiBufPtr = (PUCHAR)(&pTxBlk->HeaderBuf[TXINFO_SIZE + TXWISize]);
+ 		APBuildCacheWifiInfo(pAd, pTxBlk, pWiBufPtr);
+@@ -1904,7 +1904,7 @@ VOID AP_AMPDU_Frame_Tx_Hdr_Trns(
+ 		pWiBufPtr = &pTxBlk->HeaderBuf[TXINFO_SIZE + TXWISize];
+ 	}
+ 
+-	pWI = (PWIFI_INFO_STRUC)pWiBufPtr;
++	pWI = (TX_WIFI_INFO *)pWiBufPtr;
+ 
+ 	pTxBlk->pSrcBufData = pTxBlk->pSrcBufHeader;
+ 
+@@ -1953,7 +1953,7 @@ VOID AP_AMPDU_Frame_Tx_Hdr_Trns(
+ 		NdisZeroMemory((PUCHAR)(&pMacEntry->CachedBuf[0]), sizeof(pMacEntry->CachedBuf));
+ 		NdisMoveMemory((PUCHAR)(&pMacEntry->CachedBuf[0]), 
+ 						(PUCHAR)(&pTxBlk->HeaderBuf[TXINFO_SIZE]), 
+-						TXWISize + WIFI_INFO_SIZE);
++						TXWISize + TX_WIFI_INFO_SIZE);
+ 
+ 
+ 		pMacEntry->isCached = TRUE;
+@@ -2758,7 +2758,7 @@ VOID AP_Legacy_Frame_Tx_Hdr_Trns(
+ 	BOOLEAN			bVLANPkt;
+ 	PQUEUE_ENTRY	pQEntry;
+ 	UINT8 TXWISize = pAd->chipCap.TXWISize;
+-	PWIFI_INFO_STRUC pWI;
++	TX_WIFI_INFO * pWI;
+ 	
+ 	ASSERT(pTxBlk);
+ 
+@@ -2799,7 +2799,7 @@ VOID AP_Legacy_Frame_Tx_Hdr_Trns(
+ 
+ 	APBuildWifiInfo(pAd, pTxBlk);
+ 
+-	pWI = (PWIFI_INFO_STRUC)&pTxBlk->HeaderBuf[TXINFO_SIZE + TXWISize];
++	pWI = (TX_WIFI_INFO *)&pTxBlk->HeaderBuf[TXINFO_SIZE + TXWISize];
+ 	pTxBlk->pSrcBufData = pTxBlk->pSrcBufHeader;
+ 	if (bVLANPkt)
+ 		pWI->field.VLAN = TRUE;
+@@ -5638,7 +5638,7 @@ VOID APHandleRxDataFrame_Hdr_Trns(
+ //+++Add by shiang for debug
+ if (0 /*!(pRxInfo->Mcast || pRxInfo->Bcast)*/){
+ 	DBGPRINT(RT_DEBUG_OFF, ("-->%s(%d): Dump Related Info!\n", __FUNCTION__, __LINE__));
+-	hex_dump("DataFrameHeader", pHeader, 36);
++	hex_dump("DataFrameHeader", (unsigned char *)pHeader, 36);
+ 	hex_dump("DataFramePayload", pRxBlk->pTransData , pRxBlk->TransDataSize);
+ }
+ //---Add by shiangf for debug
+diff --git a/mt76x2/common/ba_action.c b/mt76x2/common/ba_action.c
+old mode 100644
+new mode 100755
+index e1cf702..bb0da82
+--- a/mt76x2/common/ba_action.c
++++ b/mt76x2/common/ba_action.c
+@@ -1882,11 +1882,11 @@ static VOID ba_enqueue_reordering_packet_hdr_trns(
+ 
+ 		convert_reordering_packet_to_preAMSDU_or_802_3_packet(pAd, pRxBlk, FromWhichBSSID);
+ 
+-
+-		RTMP_OS_PKT_INIT(pRxBlk->pRxPacket,
+-					get_netdev_from_bssid(pAd, FromWhichBSSID),
+-					pRxBlk->pTransData, pRxBlk->TransDataSize);
+-
++		if (pRxBlk->bHdrRxTrans) {
++			RTMP_OS_PKT_INIT(pRxBlk->pRxPacket,
++						get_netdev_from_bssid(pAd, FromWhichBSSID),
++						pRxBlk->pTransData, pRxBlk->TransDataSize);
++		}
+ 
+ 		STATS_INC_RX_PACKETS(pAd, FromWhichBSSID);
+ 
+diff --git a/mt76x2/common/cmm_data.c b/mt76x2/common/cmm_data.c
+index e09f4f7..42f774d 100755
+--- a/mt76x2/common/cmm_data.c
++++ b/mt76x2/common/cmm_data.c
+@@ -3779,7 +3779,7 @@ VOID Indicate_Legacy_Packet_Hdr_Trns(
+ //+++Add by shiang for debug
+ if (0) {
+ 	hex_dump("Indicate_Legacy_Packet", pRxBlk->pTransData, pRxBlk->TransDataSize);
+-	hex_dump("802_11_hdr", pRxBlk->pHeader, LENGTH_802_11);
++	hex_dump("802_11_hdr", (unsigned char *)pRxBlk->pHeader, LENGTH_802_11);
+ }
+ //---Add by shiang for debug
+ #endif
+@@ -3819,7 +3819,7 @@ if (0) {
+ }
+ //---Add by shiang for debug
+ #endif
+-
++	if (pRxBlk->bHdrRxTrans)
+ 	{
+ 		pOSPkt = RTPKT_TO_OSPKT(pRxPacket);
+ 
+@@ -5202,7 +5202,7 @@ BOOLEAN rtmp_rx_done_handle(RTMP_ADAPTER *pAd)
+ 			}
+ 		}
+ #endif /* RLT_MAC */
+-#endif /* HDR_TRANS_SUPPORT */
++#endif /* !HDR_TRANS_SUPPORT */
+ 
+ #ifdef RT_BIG_ENDIAN
+ 		RTMPFrameEndianChange(pAd, (PUCHAR)pHeader, DIR_READ, TRUE);
+@@ -5218,7 +5218,7 @@ BOOLEAN rtmp_rx_done_handle(RTMP_ADAPTER *pAd)
+ 			dbQueueEnqueueRxFrame(pData, (UCHAR *)pHeader, pAd->CommonCfg.DebugFlags);
+ #endif /* INCLUDE_DEBUG_QUEUE */
+ #endif /* DBG_CTRL_SUPPORT */
+-		
++
+ 		/* build RX_BLK */
+ 		rxblk.pRxWI = pRxWI;
+ 		rxblk.pHeader = pHeader;
+@@ -5272,13 +5272,22 @@ BOOLEAN rtmp_rx_done_handle(RTMP_ADAPTER *pAd)
+ #endif /* RT_CFG80211_P2P_CONCURRENT_DEVICE */	
+ #endif /* RT_CFG80211_P2P_SUPPORT */
+ 
+-#ifdef HDR_TRANS_SUPPORT
+-		rxblk.bHdrRxTrans = pRxInfo->ip_sum_err;			/* RXINFO bit 31 */
+-		rxblk.bHdrVlanTaged = pRxInfo->tcp_sum_err;			/* RXINFO bit 30 */
+-		rxblk.pTransData = (UCHAR *) pHeader +  36; /* 36 byte - 802.11 MAC header (RX Wifi Info */
+-		rxblk.TransDataSize = pRxBlk->MPDUtotalByteCnt;
++
++#ifdef HDR_TRANS_SUPPORT 
++#if 1 /* Migrated from CVS version */
++		if (( rxblk.pRxFceInfo->info_type == 0) && ( rxblk.pRxFceInfo->pkt_80211 == 0) &&
++				(pRxInfo->hdr_trans_ip_sum_err == 1)) 
++#endif
++		{		
++			/* This is a MAC 802.3 packet */
++			rxblk.bHdrRxTrans = pRxInfo->hdr_trans_ip_sum_err;			/* RXINFO bit 31 */
++			rxblk.bHdrVlanTaged = pRxInfo->vlan_taged_tcp_sum_err;			/* RXINFO bit 30 */
++			rxblk.pTransData = (UCHAR *) pHeader +  36; /* 36 byte - 802.11 MAC header (RX Wifi Info) */
++			rxblk.TransDataSize = pRxBlk->MPDUtotalByteCnt;
++		}
+ #endif	/* HDR_TRANS_SUPPORT */
+ 
++
+ 		/* Increase Total receive byte counter after real data received no mater any error or not */
+ 		pAd->RalinkCounters.ReceivedByteCount += rxblk.DataSize;
+ 		pAd->RalinkCounters.OneSecReceivedByteCount += rxblk.DataSize;
+@@ -5548,11 +5557,12 @@ BOOLEAN rtmp_rx_done_handle(RTMP_ADAPTER *pAd)
+ #endif /* RTMP_MAC_USB */
+ 
+ #ifdef HDR_TRANS_SUPPORT
+-					rxblk.bHdrRxTrans = pRxInfo->ip_sum_err; /* RXINFO bit 31 */
++					//rxblk.bHdrRxTrans = pRxInfo->hdr_trans_ip_sum_err; /* RXINFO bit 31 */
+ 					//printk("sn - rxblk.bHdrRxTrans = %d\n", rxblk.bHdrRxTrans);
+ 					if ( rxblk.bHdrRxTrans)
+ 					{
+-						rxblk.bHdrVlanTaged = pRxInfo->tcp_sum_err;	/* RXINFO bit 30 */
++						/* XXX: Mostly, we've done this earlier? */
++						rxblk.bHdrVlanTaged = pRxInfo->vlan_taged_tcp_sum_err;	/* RXINFO bit 30 */
+ 						rxblk.pTransData = (UCHAR *) pHeader +  36; /* 36 byte - RX WIFI Size ( 802.11 Header ) */
+ 						rxblk.TransDataSize = pRxBlk->MPDUtotalByteCnt;
+ 						rxblk.DataSize += 36;
+diff --git a/mt76x2/common/cmm_data_pci.c b/mt76x2/common/cmm_data_pci.c
+index 5bdad94..73c49ab 100755
+--- a/mt76x2/common/cmm_data_pci.c
++++ b/mt76x2/common/cmm_data_pci.c
+@@ -183,6 +183,9 @@ BOOLEAN MonitorRxRing(RTMP_ADAPTER *pAd)
+ static VOID ral_write_txinfo(
+ 	IN RTMP_ADAPTER *pAd,
+ 	IN TXINFO_STRUC *pTxInfo,
++#ifdef HDR_TRANS_SUPPORT
++	IN TX_BLK *pTxBlk,
++#endif /* HDR_TRANS_SUPPORT */
+ 	IN BOOLEAN bWiv,
+ 	IN UCHAR QueueSel)
+ {
+@@ -285,7 +288,7 @@ VOID ral_write_txd(
+ 	IN RTMP_ADAPTER *pAd,
+ 	IN TXD_STRUC *pTxD,
+ 	IN TXINFO_STRUC *pTxInfo,
+-#ifdef CONFIG_CSO_SUPPORT
++#if defined(CONFIG_CSO_SUPPORT) || defined(HDR_TRANS_SUPPORT)
+ 	IN TX_BLK *txblk,
+ #endif /* CONFIG_CSO_SUPPORT */
+ 	IN BOOLEAN bWIV,
+@@ -299,8 +302,11 @@ VOID ral_write_txd(
+ 	/* Todo: remove the following line if short preamble functionality works*/
+ 	
+ 	//OPSTATUS_CLEAR_FLAG(pAd, fOP_STATUS_SHORT_PREAMBLE_INUSED);
+-
++#ifndef HDR_TRANS_SUPPORT
+ 	ral_write_txinfo(pAd, pTxInfo, bWIV, QueueSEL);
++#else
++	ral_write_txinfo(pAd, pTxInfo, txblk, bWIV, QueueSEL);
++#endif /* HDR_TRANS_SUPPORT */
+ 	
+ 	pTxD->DMADONE = 0;
+ }
+@@ -1442,7 +1448,6 @@ VOID RTMPHandleMcuInterrupt(RTMP_ADAPTER *pAd)
+ }
+ #endif /* CONFIG_AP_SUPPORT */
+ 
+-
+ PNDIS_PACKET GetPacketFromRxRing(
+ 	IN RTMP_ADAPTER *pAd,
+ 	OUT RX_BLK *pRxBlk,
+@@ -1557,6 +1562,12 @@ PNDIS_PACKET GetPacketFromRxRing(
+ 		{
+ 			struct _RXWI_NMAC *rxwi_n;
+ 
++			/*
++			 * Add by Lea for HDR_TRANS_SUPPORT debugging
++			 * XXX: It seems that translation done by hardware is not correct
++			 */
++			//hex_dump("\nAt the very beginning ", GET_OS_PKT_DATAPTR(pRxPacket), 120);
++			
+ 			pRxBlk->pRxFceInfo = (RXFCE_INFO *)&pRxBlk->hw_rx_info[RXINFO_OFFSET];
+ 			pRxBlk->pRxInfo = (RXINFO_STRUC *)GET_OS_PKT_DATAPTR(pRxPacket);
+ #ifdef RT_BIG_ENDIAN
+@@ -1565,7 +1576,7 @@ PNDIS_PACKET GetPacketFromRxRing(
+ 			(*(UINT32*)pRxInfo) = le2cpu32(*(UINT32*)pRxInfo);
+ 			NdisMoveMemory(pRxBlk->pRxInfo, pRxInfo, RXINFO_SIZE);
+ #endif /* RT_BIG_ENDIAN */
+-
++			
+ 			SET_OS_PKT_DATAPTR(pRxPacket, GET_OS_PKT_DATAPTR(pRxPacket) + RXINFO_SIZE);
+ 			SET_OS_PKT_LEN(pRxPacket, GET_OS_PKT_LEN(pRxPacket) - RXINFO_SIZE);
+ 			rxwi_n = (struct _RXWI_NMAC *)(GET_OS_PKT_DATAPTR(pRxPacket));
+@@ -1589,9 +1600,18 @@ PNDIS_PACKET GetPacketFromRxRing(
+ 			pRxBlk->rssi[0] = rxwi_n->rssi[0];
+ 			pRxBlk->rssi[1] = rxwi_n->rssi[1];
+ 			pRxBlk->rssi[2] = rxwi_n->rssi[2];
+-			pRxBlk->snr[0] = rxwi_n->bbp_rxinfo[0];
+-			pRxBlk->snr[1] = rxwi_n->bbp_rxinfo[1];
+-			pRxBlk->snr[2] = rxwi_n->bbp_rxinfo[2];
++#ifdef MT76x2
++			if (IS_MT76x2(pAd)) {
++				pRxBlk->snr[0] = rxwi_n->bbp_rxinfo[2];
++				pRxBlk->snr[1] = rxwi_n->bbp_rxinfo[3];
++			}
++			else
++#endif /* MT76x2 */
++			{
++				pRxBlk->snr[0] = rxwi_n->bbp_rxinfo[0];
++				pRxBlk->snr[1] = rxwi_n->bbp_rxinfo[1];
++				pRxBlk->snr[2] = rxwi_n->bbp_rxinfo[2];
++			}
+ 			pRxBlk->freq_offset = rxwi_n->bbp_rxinfo[4];
+ 			pRxBlk->ldpc_ex_sym = rxwi_n->ldpc_ex_sym;
+ 		}
+diff --git a/mt76x2/include/ap.h b/mt76x2/include/ap.h
+old mode 100644
+new mode 100755
+index 621b9d3..ad21022
+--- a/mt76x2/include/ap.h
++++ b/mt76x2/include/ap.h
+@@ -100,6 +100,12 @@ VOID APRxEAPOLFrameIndicate(
+ 
+ VOID APHandleRxDataFrame(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk);
+ 
++#ifdef HDR_TRANS_SUPPORT
++VOID APHandleRxDataFrame_Hdr_Trns(
++	IN	PRTMP_ADAPTER	pAd,
++	IN	RX_BLK			*pRxBlk);
++#endif /* HDR_TRANS_SUPPORT */
++
+ VOID APRxErrorHandle(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk);
+ 
+ INT APCheckRxError(RTMP_ADAPTER *pAd, RXINFO_STRUC *pRxInfo, RX_BLK *pRxBlk);
+diff --git a/mt76x2/include/dot11_base.h b/mt76x2/include/dot11_base.h
+old mode 100644
+new mode 100755
+index 2049463..a84c97a
+--- a/mt76x2/include/dot11_base.h
++++ b/mt76x2/include/dot11_base.h
+@@ -127,7 +127,7 @@ typedef struct GNU_PACKED _HEADER_802_11 {
+ 	UINT16		Sequence:12;
+ #endif /* !RT_BIG_ENDIAN */
+ 	UCHAR		Octet[0];
+-}HEADER_802_11, *PHEADER_802_11;
++}HEADER_802_11, *PHEADER_802_11; /* sizeof 24 */
+ 
+ #endif /* _DOT11_BASE_H_ */
+ 
+diff --git a/mt76x2/include/mac_ral/nmac/ral_nmac.h b/mt76x2/include/mac_ral/nmac/ral_nmac.h
+index 43895a7..706b3a2 100755
+--- a/mt76x2/include/mac_ral/nmac/ral_nmac.h
++++ b/mt76x2/include/mac_ral/nmac/ral_nmac.h
+@@ -935,6 +935,13 @@ typedef union GNU_PACKED _HDR_TRANS_CTRL_STRUC {
+ /* RX header translation enable by WCID */ 
+ #define HT_RX_WCID_EN_BASE	0x0264
+ #define HT_RX_WCID_OFFSET	32
++/* Migrated from cvs version for HDR_TRANS_SUPPORT */
++#if defined(MT7601)
++// TODO: shiang-usw, check for MT7601 about this!!
++#define HT_RX_WCID_SIZE		(HT_RX_WCID_OFFSET * 4)	/* 128 WCIDs */
++#elif defined(RT65xx)
++#define HT_RX_WCID_SIZE		(HT_RX_WCID_OFFSET * 8)	/*	256 WCIDs */
++#endif /* defined(MT7601) */
+ #ifdef RT_BIG_ENDIAN
+ typedef union GNU_PACKED _HT_RX_WCID_EN_STRUC {
+ 	struct {
+diff --git a/mt76x2/include/rt_os_util.h b/mt76x2/include/rt_os_util.h
+index b396eb3..5723154 100755
+--- a/mt76x2/include/rt_os_util.h
++++ b/mt76x2/include/rt_os_util.h
+@@ -278,6 +278,11 @@ static inline VOID RtmpOsPktRcvHandle(PNDIS_PACKET pNetPkt)
+ 	}
+ #endif /* CONFIG_CSO_SUPPORT */
+
++#if 0
++	LEA_DBG("\n============= Hand packet to OS ==============\n");
++	printk("\tPacket protocol = 0x%04x\n", ntohs(pRxPkt->protocol));
++	hex_dump("\tRtmpOsPktRcvHandle", pRxPkt->data, pRxPkt->len);
++#endif
+ 	netif_rx(pRxPkt);
+ }
+ static inline VOID RtmpOsPktProtocolAssign(PNDIS_PACKET pNetPkt)
+diff --git a/mt76x2/include/rtmp_def.h b/mt76x2/include/rtmp_def.h
+old mode 100644
+new mode 100755
+index a238069..659e88d
+--- a/mt76x2/include/rtmp_def.h
++++ b/mt76x2/include/rtmp_def.h
+@@ -251,7 +251,7 @@ enum PHY_CAP{
+ 	fPHY_CAP_TXBF = 0x100,
+ 	fPHY_CAP_LDPC = 0x200,
+ };
+-
++/* HIF: Host Interconnect Framework? */
+ enum HIF_TYPE{
+ 	HIF_RTMP = 0x0,
+ 	HIF_RLT = 0x1,
+diff --git a/mt76x2/mcu/mcu_and.c b/mt76x2/mcu/mcu_and.c
+old mode 100644
+new mode 100755
+index 79adb54..aced758
+--- a/mt76x2/mcu/mcu_and.c
++++ b/mt76x2/mcu/mcu_and.c
+@@ -2499,7 +2499,7 @@ void andes_pci_fw_init(RTMP_ADAPTER *ad)
+ #else
+ 	RTMP_IO_WRITE32(ad, HEADER_TRANS_CTRL_REG, 0x0);
+ 	RTMP_IO_WRITE32(ad, TSO_CTRL, 0x0);
+-#endif
++#endif /* HDR_TRANS_SUPPORT */
+ 
+ 	andes_fun_set(ad, Q_SELECT, ad->chipCap.CmdRspRxRing);
+ 	PWR_SAVING_OP(ad, RADIO_ON, 0, 0, 0, 0, 0);
+diff --git a/mt76x2_ap/Makefile b/mt76x2_ap/Makefile
+index 118fa8b..74784e2 100644
+--- a/mt76x2_ap/Makefile
++++ b/mt76x2_ap/Makefile
+@@ -308,8 +308,8 @@ EXTRA_CFLAGS += -DRT_SOC_SUPPORT
+ endif
+ 
+ ifeq ($(CONFIG_MT76X2_AP_HDR_TRANS_SUPPORT),y)
+-EXTRA_CFLAGS += -DHDR_TRANS_TX_SUPPORT
++CONFIG_RT_HDR_TRANS=y
+ endif
+ 
+ # do not lock CountryRegion from EEPROM
+ EXTRA_CFLAGS += -DEEPROM_COUNTRY_UNLOCK
+-- 
+2.10.1
+

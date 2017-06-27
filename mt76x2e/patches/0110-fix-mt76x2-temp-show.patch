@@ -1,0 +1,52 @@
+diff --git a/mt76x2/ap/ap_cfg.c b/mt76x2/ap/ap_cfg.c
+index 92aadbe..2606a42 100644
+--- a/mt76x2/ap/ap_cfg.c
++++ b/mt76x2/ap/ap_cfg.c
+@@ -11128,6 +11128,8 @@ VOID RTMPIoctlStatistics(RTMP_ADAPTER *pAd, RTMP_IOCTL_INPUT_STRUCT *wrq)
+ 	UCHAR index=0;
+ #endif
+ 
++	UINT32 temperature=0;
++	
+ 	RTMP_CHIP_CAP *pChipCap = &pAd->chipCap;
+ 
+ 	os_alloc_mem(pAd, (UCHAR **)&msg, sizeof(CHAR)*(2048));
+@@ -11150,8 +11152,9 @@ VOID RTMPIoctlStatistics(RTMP_ADAPTER *pAd, RTMP_IOCTL_INPUT_STRUCT *wrq)
+ 		txCount = pAd->WlanCounters.TransmittedFragmentCount.u.LowPart;
+ 		rxCount = pAd->WlanCounters.ReceivedFragmentCount.QuadPart;
+ 	}
+-
+-	sprintf(msg+strlen(msg), "Current temperature = %d\n", pChipCap->current_temp);
++	
++	RTMP_CHIP_GET_CURRENT_TEMP(pAd, temperature);
++	sprintf(msg+strlen(msg), "Current temperature = %d\n", temperature);
+ #ifdef DYNAMIC_VGA_SUPPORT
+ 	sprintf(msg+strlen(msg), "Average RSSI = %d\n", pChipCap->avg_rssi_all);
+ #endif /* DYNAMIC_VGA_SUPPORT */
+diff --git a/mt76x2/chips/mt76x2.c b/mt76x2/chips/mt76x2.c
+index 0314d5f..703a79f 100644
+--- a/mt76x2/chips/mt76x2.c
++++ b/mt76x2/chips/mt76x2.c
+@@ -3685,6 +3685,14 @@ void mt76x2_get_current_temp(RTMP_ADAPTER *ad)
+ 		__FUNCTION__, temp_val, temp_val, pChipCap->current_temp, pChipCap->current_temp));
+ }
+ 
++UINT32 mt76x2e_get_current_temp(RTMP_ADAPTER *ad)
++{
++  RTMP_CHIP_CAP *pChipCap = &ad->chipCap;
++  mt76x2_get_current_temp(ad);
++  return pChipCap->current_temp;
++}
++
++
+ void mt76x2_read_temp_info_from_eeprom(RTMP_ADAPTER *ad)
+ {
+ 	RTMP_CHIP_CAP *pChipCap = &ad->chipCap;
+@@ -5905,6 +5913,7 @@ static const RTMP_CHIP_OP MT76x2_ChipOp = {
+ 	.SkuTxPwrAdj = NULL,
+ #endif
+ 	.TxPwrBoost = mt76x2_tx_pwr_boost,
++	.ChipGetCurrentTemp = mt76x2e_get_current_temp,
+ 
+ };
+ VOID mt76x2_ePA_per_rate_compensate_init(RTMP_ADAPTER *pAd , BOOLEAN is_ePA)

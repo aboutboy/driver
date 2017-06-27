@@ -1,0 +1,47 @@
+--- a/rt2860v2/common/cmm_data.c
++++ b/rt2860v2/common/cmm_data.c
+@@ -2587,6 +2587,8 @@ MAC_TABLE_ENTRY *MacTableLookup(
+ {
+ 	ULONG HashIdx;
+ 	MAC_TABLE_ENTRY *pEntry = NULL;
++
++	NdisAcquireSpinLock(&pAd->MacTabLock);
+ 	
+ 	HashIdx = MAC_ADDR_HASH_INDEX(pAddr);
+ 	pEntry = pAd->MacTab.Hash[HashIdx];
+@@ -2601,6 +2603,8 @@ MAC_TABLE_ENTRY *MacTableLookup(
+ 			pEntry = pEntry->pNext;
+ 	}
+ 
++	NdisReleaseSpinLock(&pAd->MacTabLock);
++
+ 	return pEntry;
+ }
+ 
+--- a/rt2860v2/common/ps.c
++++ b/rt2860v2/common/ps.c
+@@ -265,6 +265,13 @@ VOID RtmpHandleRxPsPoll(
+ /*                    (pAd->PortCfg.TxQueueSize + (MAX_PACKETS_IN_PS_QUEUE>>1))) */
+ 				{
+ 					pEntry = RemoveHeadQueue(&pMacEntry->PsQueue);
++					if (pAd->TxSwQueue[QID_AC_BE].Number >= pAd->TxSwQMaxLen)
++					{
++						PNDIS_PACKET pPacket;
++						pPacket = QUEUE_ENTRY_TO_PACKET(pEntry);
++						RELEASE_NDIS_PACKET(pAd, pPacket, NDIS_STATUS_FAILURE);
++						continue;
++					}
+ 					InsertTailQueueAc(pAd, pMacEntry, &pAd->TxSwQueue[QID_AC_BE], pEntry);
+ 				}
+ /*                else */
+--- a/rt2860v2/common/uapsd.c
++++ b/rt2860v2/common/uapsd.c
+@@ -514,7 +514,7 @@ VOID UAPSD_PacketEnqueue(
+ 
+ 	pQueUapsd = &(pEntry->UAPSDQueue[IdAc]);
+ 
+-	if (pQueUapsd->Number >= MAX_PACKETS_IN_UAPSD_QUEUE)
++	if ((pQueUapsd->Number >= MAX_PACKETS_IN_UAPSD_QUEUE) || (pAd->TxSwQueue[IdAc].Number >= (pAd->TxSwQMaxLen+MAX_PACKETS_IN_UAPSD_QUEUE)))
+     	{
+ 	        /* too much queued pkts, free (discard) the tx packet */
+ 	        DBGPRINT(RT_DEBUG_TRACE,

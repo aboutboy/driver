@@ -1,0 +1,24 @@
+--- a/mt76x2/include/rtmp_def.h
++++ b/mt76x2/include/rtmp_def.h
+@@ -277,6 +277,8 @@ enum BBP_TYPE{
+ 
+ #define PHY_CAP_2G(_x)		(((_x) & fPHY_CAP_24G) == fPHY_CAP_24G)
+ #define PHY_CAP_5G(_x)		(((_x) & fPHY_CAP_5G) == fPHY_CAP_5G)
++#define PHY_CAP_N(_x)		(((_x) & fPHY_CAP_HT) == fPHY_CAP_HT)
++#define PHY_CAP_AC(_x)		(((_x) & fPHY_CAP_VHT) == fPHY_CAP_VHT)
+ 
+ enum WIFI_MODE{
+ 	WMODE_INVALID = 0,
+--- a/mt76x2_ap/Makefile
++++ b/mt76x2_ap/Makefile
+@@ -543,6 +543,10 @@ ifeq ($(CONFIG_RT_BAND_STEERING),y)
+ EXTRA_CFLAGS += -DBAND_STEERING
+ endif
+ 
++ifeq ($(CONFIG_RT_MULTI_CORE_SUPPORT),y)
++EXTRA_CFLAGS += -DMULTI_CORE_SUPPORT
++endif
++
+ ifeq ($(CONFIG_RT_DOT11R_FT),y)
+ EXTRA_CFLAGS += -DDOT11R_FT_SUPPORT -DIAPP_SUPPORT
+ endif

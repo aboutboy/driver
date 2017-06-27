@@ -1,0 +1,121 @@
+--- a/mt7610/common/cmm_data_pci.c
++++ b/mt7610/common/cmm_data_pci.c
+@@ -31,7 +31,7 @@
+ #include	"rt_config.h"
+ 
+ 
+-#ifdef DBG
++#if 1
+ VOID dump_txd(RTMP_ADAPTER *pAd, TXD_STRUC *pTxD)
+ {
+ 	DBGPRINT(RT_DEBUG_OFF, ("TxD:\n"));
+--- a/mt7610/include/rt_config.h
++++ b/mt7610/include/rt_config.h
+@@ -48,6 +48,10 @@
+ #endif /* RT_CFG80211_SUPPORT */
+ #endif /* LINUX */
+ 
++#ifdef BG_FT_SUPPORT
++#include "br_ftph.h"
++#endif /* BG_FT_SUPPORT */
++
+ #ifdef AGS_SUPPORT
+ #include "ags.h"
+ #endif /* AGS_SUPPORT */
+--- a/mt7610/os/linux/br_ftph.c
++++ b/mt7610/os/linux/br_ftph.c
+@@ -50,7 +50,6 @@
+ 
+ 		if (HandRst != 0)
+ 		{
+-			/* pass the packet to upper layer */
+ 			skb->protocol = eth_type_trans(skb, skb->dev);
+ 			netif_rx(skb);
+ 		}
+@@ -87,6 +86,7 @@ Note:
+ */
+ VOID BG_FTPH_Init(VOID)
+ {
++	printk("MT7610E Fast Mode init.\n");
+ 	RALINK_FP_Handle = BG_FTPH_PacketFromApHandle;
+ }
+ 
+@@ -108,6 +108,7 @@ Note:
+ */
+ VOID BG_FTPH_Remove(VOID)
+ {
++	printk("MT7610E Fast Mode exit.\n");
+ 	RALINK_FP_Handle = NULL;
+ } /* End of BG_FTPH_Init */
+ 
+@@ -145,9 +146,21 @@ UINT32 BG_FTPH_PacketFromApHandle(
+ 
+ 	if (pNetDev != NULL)
+ 	{
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++		if (br_port_get_rcu(pNetDev) != NULL)
++#else
+ 		if (pNetDev->br_port != NULL)
++#endif
+ 		{
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,12)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
++			/* br_fdb_get is not exported symbol, need exported in net/bridge/br.c */
++			pDstFdbEntry = __br_fdb_get(br_port_get_rcu(pNetDev)->br, pRxPkt->data, 0);
++			pSrcFdbEntry = __br_fdb_get(br_port_get_rcu(pNetDev)->br, pRxPkt->data + 6, 0);
++#elif  LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++			/* br_fdb_get is not exported symbol, need exported in net/bridge/br.c */
++			pDstFdbEntry = __br_fdb_get(br_port_get_rcu(pNetDev)->br, pRxPkt->data);
++			pSrcFdbEntry = __br_fdb_get(br_port_get_rcu(pNetDev)->br, pRxPkt->data + 6);
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,12)
+ 			pDstFdbEntry = br_fdb_get_hook(pNetDev->br_port->br, pRxPkt->data);
+ 			pSrcFdbEntry = br_fdb_get_hook(pNetDev->br_port->br, pRxPkt->data + 6);
+ #else
+@@ -163,7 +176,11 @@ UINT32 BG_FTPH_PacketFromApHandle(
+ 				(pDstFdbEntry->dst == NULL) ||
+ 				(pDstFdbEntry->dst->dev == NULL) ||
+ 				(pDstFdbEntry->dst->dev == pNetDev) ||
++#if  LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++				(br_port_get_rcu(pNetDev)->state != BR_STATE_FORWARDING) ||
++#else
+ 				(pNetDev->br_port->state != BR_STATE_FORWARDING) ||
++#endif
+ 				((pSrcFdbEntry->dst != NULL) &&
+ 					(pSrcFdbEntry->dst->dev != NULL) &&
+ 					(pSrcFdbEntry->dst->dev != pNetDev)))
+@@ -177,7 +194,11 @@ UINT32 BG_FTPH_PacketFromApHandle(
+ 				(pDstFdbEntry->dst->dev != NULL))
+ 			{
+ 				pRxPkt->dev = pDstFdbEntry->dst->dev;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
+ 				pDstFdbEntry->dst->dev->hard_start_xmit(pRxPkt, pDstFdbEntry->dst->dev);
++#else
++				pDstFdbEntry->dst->dev->netdev_ops->ndo_start_xmit(pRxPkt, pDstFdbEntry->dst->dev);
++#endif
+ 				return 0;
+ 			} /* End of if */
+ 		} /* End of if */
+--- a/mt7610_ap/Makefile
++++ b/mt7610_ap/Makefile
+@@ -172,6 +172,10 @@ ifeq ($(CONFIG_RT_BAND_STEERING),y)
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/ap/ap_band_steering.o
+ endif
+ 
++ifeq ($(CONFIG_RT_BRIDGE_FASTPATH),y)
++$(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/os/linux/br_ftph.o
++endif
++
+ ###################
+ #  CFLAGS
+ ##################
+@@ -389,6 +393,10 @@ ifeq ($(CONFIG_RT_MC_SUPPORT),y)
+ EXTRA_CFLAGS += -DMULTIPLE_CARD_SUPPORT
+ endif
+ 
++ifeq ($(CONFIG_RT_BRIDGE_FASTPATH),y)
++EXTRA_CFLAGS += -DBG_FT_SUPPORT
++endif
++
+ EXTRA_CFLAGS += -DCONFIG_RT_FIRST_CARD=$(CONFIG_RT_FIRST_CARD)
+ EXTRA_CFLAGS += -DCONFIG_RT_SECOND_CARD=7610
+ #EXTRA_CFLAGS += -DCONFIG_RT_SECOND_CARD=$(CONFIG_RT_SECOND_CARD)

@@ -1,0 +1,11 @@
+--- a/rt2860v2/ap/ap_cfg.c
++++ b/rt2860v2/ap/ap_cfg.c
+@@ -4013,7 +4013,7 @@ INT RTMPAPQueryInformation(
+ 	            wrq->u.data.length = pMBSSStruct->WscControl.WpaPskLen;
+ 	            Status = copy_to_user(wrq->u.data.pointer, &pMBSSStruct->WscControl.WpaPsk, wrq->u.data.length);
+ 	            DBGPRINT(RT_DEBUG_TRACE, ("Query::OID_802_11_PASSPHRASE\n"));
+-		     hex_dump("OID_802_11_PASSPHRASE : ",&pMBSSStruct->WscControl.WpaPsk,wrq->u.data.length);
++		     hex_dump("OID_802_11_PASSPHRASE : ",pMBSSStruct->WscControl.WpaPsk,wrq->u.data.length);
+ 	            break;
+ 	        }
+ #endif

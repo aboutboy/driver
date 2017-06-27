@@ -1,0 +1,11 @@
+--- a/rt2860v2/include/rtmp.h
++++ b/rt2860v2/include/rtmp.h
+@@ -120,7 +120,7 @@ typedef struct _UAPSD_INFO {
+ #ifdef DOT11N_SS3_SUPPORT
+ #define MAX_MCS_SET 24		/* From MCS 0 ~ MCS 23 */
+ #else
+-#define MAX_MCS_SET 16		/* From MCS 0 ~ MCS 15 */
++#define MAX_MCS_SET 33		/* From MCS 0 ~ MCS 15 */
+ #endif /* DOT11N_SS3_SUPPORT */
+ 
+ 

@@ -1,0 +1,299 @@
+--- a/mt76x2/common/ba_action.c
++++ b/mt76x2/common/ba_action.c
+@@ -2,7 +2,8 @@
+ 
+ #include "rt_config.h"
+ 
+-
++extern void port_link_hotplug_work(char name[], int link_status, unsigned char MAC[], unsigned int speed, int signal);
++extern int get_rate(MACHTTRANSMIT_SETTING TxRate);
+ 
+ #define BA_ORI_INIT_SEQ		(pEntry->TxSeq[TID]) /* 1 : inital sequence number of BA session*/
+ 
+@@ -1374,7 +1375,38 @@ VOID PeerAddBAReqAction(RTMP_ADAPTER *pA
+ 			  END_OF_ARGS);
+ 	MiniportMMRequest(pAd, QID_AC_BE, pOutBuffer, FrameLen);
+ 	MlmeFreeMemory(pAd, pOutBuffer);
+-
++#if 1
++int signal=0;
++unsigned char mac_addr[24]={0};
++MACHTTRANSMIT_SETTING tx_parameter;
++char name[8]={0};
++int rate=0;
++sprintf(mac_addr, "%02x:%02x:%02x:%02x:%02x:%02x",  \
++		pAd->MacTab.Content[Elem->Wcid].Addr[0], pAd->MacTab.Content[Elem->Wcid].Addr[1],\
++		pAd->MacTab.Content[Elem->Wcid].Addr[2], pAd->MacTab.Content[Elem->Wcid].Addr[3],\
++		pAd->MacTab.Content[Elem->Wcid].Addr[4], pAd->MacTab.Content[Elem->Wcid].Addr[5]);
++
++tx_parameter.word          = pAd->MacTab.Content[Elem->Wcid].HTPhyMode.word;
++tx_parameter.field.MODE    = pAd->MacTab.Content[Elem->Wcid].HTPhyMode.field.MODE;
++tx_parameter.field.BW      = pAd->MacTab.Content[Elem->Wcid].HTPhyMode.field.BW;
++tx_parameter.field.MCS     = pAd->MacTab.Content[Elem->Wcid].HTPhyMode.field.MCS;
++tx_parameter.field.ShortGI = pAd->MacTab.Content[Elem->Wcid].HTPhyMode.field.ShortGI;
++
++	/* Update RSSI to prevent No signal display when cards first initialized */
++	pAd->MacTab.Content[Elem->Wcid].RssiSample.LastRssi0	= ConvertToRssi(pAd, Elem->Rssi0, RSSI_0);
++	pAd->MacTab.Content[Elem->Wcid].RssiSample.LastRssi1	= ConvertToRssi(pAd, Elem->Rssi1, RSSI_1);
++	pAd->MacTab.Content[Elem->Wcid].RssiSample.LastRssi2	= ConvertToRssi(pAd, Elem->Rssi2, RSSI_2);
++
++signal = ((int)(pAd->MacTab.Content[Elem->Wcid].RssiSample.LastRssi0) + \
++	  (int)(pAd->MacTab.Content[Elem->Wcid].RssiSample.LastRssi1))/2;
++
++memcpy(name, pAd->net_dev->name, strlen(pAd->net_dev->name));
++
++rate = get_rate(tx_parameter);
++
++printk("WLAN:STA %s(dev:%s rate:%dMbps singnal:%ddBm) associated \n", mac_addr, pAd->net_dev->name,get_rate(tx_parameter), signal);
++port_link_hotplug_work(name, 1, mac_addr, rate, signal); // 1: connect
++#endif
+ 	DBGPRINT(RT_DEBUG_TRACE, ("%s(%d): TID(%d), BufSize(%d) <== \n", __FUNCTION__, Elem->Wcid, ADDframe.BaParm.TID, 
+ 							  ADDframe.BaParm.BufSize));
+ }
+--- /dev/null
++++ b/mt76x2/common/wifi_netlink.c
+@@ -0,0 +1,187 @@
++
++#include "rt_config.h"
++
++#define PORT_SKB_SIZE	2048
++
++#if 1
++int MCSMappingRateTable[] =
++{
++	 2,  4,   11,  22,								// CCK
++
++	12,  18,  24,  36,  48,  72,  96, 108,						// OFDM
++
++	13,  26,  39,  52,  78, 104, 117, 130, 26,  52,  78, 104, 156, 208, 234, 260,	// 11n: 20MHz, 800ns GI, MCS: 0 ~ 15
++	39,  78, 117, 156, 234, 312, 351, 390,						// 11n: 20MHz, 800ns GI, MCS: 16 ~ 23
++	27,  54,  81, 108, 162, 216, 243, 270, 54, 108, 162, 216, 324, 432, 486, 540,	// 11n: 40MHz, 800ns GI, MCS: 0 ~ 15
++	81, 162, 243, 324, 486, 648, 729, 810,						// 11n: 40MHz, 800ns GI, MCS: 16 ~ 23
++	14,  29,  43,  57,  87, 115, 130, 144, 29, 59,   87, 115, 173, 230, 260, 288,	// 11n: 20MHz, 400ns GI, MCS: 0 ~ 15
++	43,  87, 130, 173, 260, 317, 390, 433,						// 11n: 20MHz, 400ns GI, MCS: 16 ~ 23
++	30,  60,  90, 120, 180, 240, 270, 300, 60, 120, 180, 240, 360, 480, 540, 600,	// 11n: 40MHz, 400ns GI, MCS: 0 ~ 15
++	90, 180, 270, 360, 540, 720, 810, 900,
++	13,  26,  39,  52,  78, 104, 117, 130, 156,					// 11ac: 20Mhz, 800ns GI, MCS: 0~8
++	27,  54,  81, 108, 162, 216, 243, 270, 324, 360,				// 11ac: 40Mhz, 800ns GI, MCS: 0~9
++	59, 117, 176, 234, 351, 468, 527, 585, 702, 780,				// 11ac: 80Mhz, 800ns GI, MCS: 0~9
++	14,  29,  43,  57,  87, 115, 130, 144, 173,					// 11ac: 20Mhz, 400ns GI, MCS: 0~8
++	30,  60,  90, 120, 180, 240, 270, 300, 360, 400,				// 11ac: 40Mhz, 400ns GI, MCS: 0~9
++	65, 130, 195, 260, 390, 520, 585, 650, 780, 867					// 11ac: 80Mhz, 400ns GI, MCS: 0~9
++};
++
++int get_rate(MACHTTRANSMIT_SETTING TxRate)
++{
++	int rate_count = sizeof(MCSMappingRateTable)/sizeof(int);
++	int rate_index = 0;
++	int num_ss_vht = 1;
++
++	if (TxRate.field.MODE >= MODE_VHT) {
++		int mcs_1ss = (int)TxRate.field.MCS;
++		if (mcs_1ss > 9) {
++			num_ss_vht = (mcs_1ss / 16) + 1;
++			mcs_1ss %= 16;
++		}
++		if (TxRate.field.BW == BW_20)
++			rate_index = 108 + ((unsigned char)TxRate.field.ShortGI * 29) + mcs_1ss;
++		else if (TxRate.field.BW == BW_40)
++			rate_index = 117 + ((unsigned char)TxRate.field.ShortGI * 29) + mcs_1ss;
++		else if (TxRate.field.BW == BW_80)
++			rate_index = 127 + ((unsigned char)TxRate.field.ShortGI * 29) + mcs_1ss;
++	}
++	else if (TxRate.field.MODE >= MODE_HTMIX)
++		rate_index = 12 + ((unsigned char)TxRate.field.BW * 24) + ((unsigned char)TxRate.field.ShortGI * 48) + ((unsigned char)TxRate.field.MCS);
++	else if (TxRate.field.MODE == MODE_OFDM)
++		rate_index = (unsigned char)(TxRate.field.MCS) + 4;
++	else if (TxRate.field.MODE == MODE_CCK)
++		rate_index = (unsigned char)(TxRate.field.MCS);
++
++	if (rate_index < 0)
++		rate_index = 0;
++
++	if (rate_index >= rate_count)
++		rate_index = rate_count-1;
++
++	return (MCSMappingRateTable[rate_index] * num_ss_vht * 5)/10;
++}
++#endif
++
++struct port_event {
++	char	name[8];
++	char		*type;
++	unsigned char	MAC[32]; // MAC address
++	unsigned int	speed;   // 300MHz;867MHz
++	unsigned long	timer;   // 60min
++	int signal;
++	char		*action; // clinet CONNECT:DISCONNECT
++
++	struct work_struct	working; // 定义相关数据 work
++	struct sk_buff	*skb;
++};
++
++/* -------------------port netlink------------------------------------*/
++static int port_event_add_var(struct port_event *event, int argv,
++		const char *format, ...)
++{
++	static char buf[128];
++	char *s;
++	va_list args;
++	int len;
++
++	if (argv)
++		return 0;
++
++	va_start(args, format);
++	len = vsnprintf(buf, sizeof(buf), format, args);
++	va_end(args);
++
++	if (len >= sizeof(buf)) {
++		printk("buffer size too small\n");
++		WARN_ON(1);
++		return -ENOMEM;
++	}
++
++	s = skb_put(event->skb, len + 1);
++	strcpy(s, buf);
++
++	return 0;
++}
++
++
++ // 编写要提交到工作队列中的函数
++static void port_link_hotplug_mt76x2(struct work_struct *work)
++{
++	int ret;
++	struct port_event *event = container_of(work, struct port_event, working); // 获取event的地址
++
++	event->skb = alloc_skb(PORT_SKB_SIZE, GFP_ATOMIC);
++
++	if (!event->skb)
++		goto out_free_event;
++
++	ret = port_event_add_var(event, 0, "%s@", event->action);
++	if (ret)
++		goto out_free_skb;
++
++	ret = port_event_add_var(event, 0, "HOME=%s", "/");
++	if (ret)
++		goto out_free_skb;
++
++	ret = port_event_add_var(event, 0, "PATH=%s",
++					"/sbin:/bin:/usr/sbin:/usr/bin");
++	if (ret)
++		goto out_free_skb;
++
++	ret = port_event_add_var(event, 0, "SUBSYSTEM=%s", event->type);
++	if (ret)
++		goto out_free_skb;
++
++	ret = port_event_add_var(event, 0, "WIFIDEV=%s", event->name);
++	if (ret)
++		goto out_free_skb;
++
++	ret = port_event_add_var(event, 0, "ACTION=%s", event->action);
++	if (ret)
++		goto out_free_skb;
++
++	ret = port_event_add_var(event, 0, "MAC=%s", event->MAC);
++	if (ret)
++		goto out_free_skb;
++
++	ret = port_event_add_var(event, 0, "SPEED=%d", event->speed);
++	if (ret)
++		goto out_free_skb;
++
++	ret = port_event_add_var(event, 0, "SIGNAL=%d", event->signal);
++	if (ret)
++		goto out_free_skb;
++
++	NETLINK_CB(event->skb).dst_group = 1;
++	broadcast_uevent(event->skb, 0, 1, GFP_KERNEL);  //自己会释放skb_buff
++
++out_free_skb:
++	if (ret) {
++		printk("work error %d\n", ret);
++		kfree_skb(event->skb);
++	}
++
++out_free_event:
++	kfree(event); // 释放event
++	return;
++}
++
++void port_link_hotplug_work(char name[], int link_status, unsigned char MAC[], unsigned int speed, int signal)
++{
++
++	struct port_event *event;
++
++	event = kzalloc(sizeof(*event), GFP_ATOMIC);
++	memset(event->name, 0, sizeof(event->name));
++	memset(event->MAC, 0, sizeof(event->MAC));
++
++	event->type = "wifi";
++	memcpy(event->name, name, strlen(name));
++	memcpy(event->MAC, MAC, strlen(MAC));
++	event->speed = speed;
++	event->action = link_status? "CONNECT":"DISCONNECT";
++	event->signal = signal;
++
++	INIT_WORK(&event->working, (void *)(void *)port_link_hotplug_mt76x2); // 完成数据的初始化工作
++	schedule_work(&event->working); // 将任务提交到工作队列
++}
+--- a/mt76x2/mgmt/mgmt_entrytb.c
++++ b/mt76x2/mgmt/mgmt_entrytb.c
+@@ -25,7 +25,8 @@
+ */
+ 
+ #include <rt_config.h>
+-
++extern void port_link_hotplug_work(char name[], int link_status, unsigned char MAC[], unsigned int speed, int signal);
++extern int get_rate(MACHTTRANSMIT_SETTING TxRate);
+ 
+ // TODO: this function not finish yet!!
+ VOID mgmt_tb_set_mcast_entry(RTMP_ADAPTER *pAd)
+@@ -907,6 +908,11 @@ BOOLEAN MacTableDeleteEntry(RTMP_ADAPTER
+ 	USHORT HashIdx;
+ 	MAC_TABLE_ENTRY *pEntry, *pPrevEntry, *pProbeEntry;
+ 	BOOLEAN Cancelled;
++	int signal=0;
++	unsigned char mac_addr[24]={0};
++	MACHTTRANSMIT_SETTING tx_parameter;
++	char name[8]={0};
++	int rate=0;
+ 
+ 	if (wcid >= MAX_LEN_OF_MAC_TABLE)
+ 		return FALSE;
+@@ -944,6 +950,22 @@ BOOLEAN MacTableDeleteEntry(RTMP_ADAPTER
+ 			wf_fwd_delete_entry_inform_hook(pEntry->Addr);
+ #endif /* CONFIG_WIFI_PKT_FWD */
+ 
++		sprintf(mac_addr, "%02x:%02x:%02x:%02x:%02x:%02x",  \
++				pAd->MacTab.Content[wcid].Addr[0], pAd->MacTab.Content[wcid].Addr[1],\
++				pAd->MacTab.Content[wcid].Addr[2], pAd->MacTab.Content[wcid].Addr[3],\
++				pAd->MacTab.Content[wcid].Addr[4], pAd->MacTab.Content[wcid].Addr[5]);
++		tx_parameter.word          = pAd->MacTab.Content[wcid].HTPhyMode.word;
++		tx_parameter.field.MODE    = pAd->MacTab.Content[wcid].HTPhyMode.field.MODE;
++		tx_parameter.field.BW      = pAd->MacTab.Content[wcid].HTPhyMode.field.BW;
++		tx_parameter.field.MCS     = pAd->MacTab.Content[wcid].HTPhyMode.field.MCS;
++		tx_parameter.field.ShortGI = pAd->MacTab.Content[wcid].HTPhyMode.field.ShortGI;
++		signal = ((int)(pAd->MacTab.Content[wcid].RssiSample.LastRssi0) + \
++			  (int)(pAd->MacTab.Content[wcid].RssiSample.LastRssi1))/2;
++		memcpy(name, pAd->net_dev->name, strlen(pAd->net_dev->name));
++		rate = get_rate(tx_parameter);
++		printk("WLAN:STA %s(dev:%s rate:%dMbps singnal:%ddBm) disconnect \n", mac_addr, pAd->net_dev->name,get_rate(tx_parameter), signal);
++		port_link_hotplug_work(name, 0, mac_addr, rate, signal); //0:disconnect
++
+ 		/* ENTRY PREEMPTION: Cancel all timers */
+ 		RTMPCancelTimer(&pEntry->RetryTimer, &Cancelled);
+ 		RTMPCancelTimer(&pEntry->EnqueueStartForPSKTimer, &Cancelled);
+--- a/mt76x2_ap/Makefile
++++ b/mt76x2_ap/Makefile
+@@ -40,6 +40,7 @@ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/co
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/common/cmm_sanity.o
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/common/cmm_info.o
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/common/cmm_cfg.o
++$(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/common/wifi_netlink.o
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/common/cmm_profile.o
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/common/cmm_asic.o
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/common/cmm_cmd.o

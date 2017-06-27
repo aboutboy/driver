@@ -1,0 +1,166 @@
+diff --git a/mt7628/rate_ctrl/alg_grp.c b/mt7628/rate_ctrl/alg_grp.c
+index 0d0d244..c0fe427 100644
+--- a/mt7628/rate_ctrl/alg_grp.c
++++ b/mt7628/rate_ctrl/alg_grp.c
+@@ -655,8 +655,28 @@ VOID MlmeNewRateAdapt(
+ 
+ 		if (CurrRateIdx != DownRateIdx)
+ 		{
+-			pEntry->CurrTxRateIndex = DownRateIdx;
+-			pEntry->LastSecTxRateChangeAction = RATE_DOWN;
++			if(pAd->bPandoraBoxSmartEn) {
++						UCHAR *pTable = pEntry->pTable;
++						CHAR Rssi;
++						RTMP_RA_LEGACY_TB *pCurrTxRate;
++			
++						Rssi = RTMPAvgRssi(pAd, &pEntry->RssiSample);
++						pCurrTxRate = PTX_RA_LEGACY_ENTRY(pTable, CurrRateIdx);
++			
++						if(Rssi > -60 && pCurrTxRate->CurrMCS == 3)
++						{
++							pEntry->LastSecTxRateChangeAction = RATE_NO_CHANGE;
++							printk("%s;%d;fix lowest mcs=3;pCurrTxRate->CurrMCS=%d=\n",__FUNCTION__,__LINE__,pCurrTxRate->CurrMCS);
++						}
++						else
++						{
++						pEntry->CurrTxRateIndex = DownRateIdx;
++						pEntry->LastSecTxRateChangeAction = RATE_DOWN;
++						}
++			} else {
++						pEntry->CurrTxRateIndex = DownRateIdx;
++						pEntry->LastSecTxRateChangeAction = RATE_DOWN;
++			}
+ 		}
+ 	}
+ 	else
+diff --git a/mt7628/rate_ctrl/alg_legacy.c b/mt7628/rate_ctrl/alg_legacy.c
+index e3c2efe..9838afc 100644
+--- a/mt7628/rate_ctrl/alg_legacy.c
++++ b/mt7628/rate_ctrl/alg_legacy.c
+@@ -1623,8 +1623,28 @@ VOID MlmeOldRateAdapt(
+ 		MlmeSetTxQuality(pEntry, CurrRateIdx, DRS_TX_QUALITY_WORST_BOUND);
+ 		if (CurrRateIdx != DownRateIdx)
+ 		{
+-			pEntry->CurrTxRateIndex = DownRateIdx;
+-			pEntry->LastSecTxRateChangeAction = RATE_DOWN;
++			if(pAd->bPandoraBoxSmartEn) {
++						UCHAR *pTable = pEntry->pTable;
++						CHAR Rssi;
++						RTMP_RA_LEGACY_TB *pCurrTxRate;
++			
++						Rssi = RTMPAvgRssi(pAd, &pEntry->RssiSample);
++						pCurrTxRate = PTX_RA_LEGACY_ENTRY(pTable, CurrRateIdx);
++						
++						
++						if(Rssi > -60 && pCurrTxRate->CurrMCS == 3)
++						{
++							pEntry->LastSecTxRateChangeAction = RATE_NO_CHANGE;
++						}
++						else
++						{
++							pEntry->CurrTxRateIndex = DownRateIdx;
++							pEntry->LastSecTxRateChangeAction = RATE_DOWN;
++						}
++			} else {	
++						pEntry->CurrTxRateIndex = DownRateIdx;
++						pEntry->LastSecTxRateChangeAction = RATE_DOWN;
++			}
+ 		}
+ 	}
+ 	else
+diff --git a/mt7628/embedded/ap/ap_cfg.c b/mt7628/embedded/ap/ap_cfg.c
+index 49f6622..cf1e168 100755
+--- a/mt7628/embedded/ap/ap_cfg.c
++++ b/mt7628/embedded/ap/ap_cfg.c
+@@ -458,6 +458,12 @@ INT set_false_cca_low_th(RTMP_ADAPTER *pAd, RTMP_STRING *arg);
+ INT Set_Airplay_Enable(RTMP_ADAPTER	*pAd, RTMP_STRING *arg);
+ #endif /* AIRPLAY_SUPPORT */
+ 
++#if 1
++INT Set_PandoraBoxSmartEnable(
++	IN	PRTMP_ADAPTER	pAd, 
++	IN	PSTRING 		arg);
++#endif
++
+ #ifdef MT_MAC
+ INT	Set_AP_TimEnable_Proc(RTMP_ADAPTER *pAd, RTMP_STRING *arg);
+ 
+@@ -1038,6 +1044,11 @@ static struct {
+ #ifdef AIRPLAY_SUPPORT
+ 	{"airplayEnable",				Set_Airplay_Enable},
+ #endif /* AIRPLAY_SUPPORT*/
++
++#if 1
++		{"PandoraBoxSmart",		Set_PandoraBoxSmartEnable},
++#endif /* AIRPLAY_SUPPORT*/
++
+ #ifdef MT_MAC
+ 	{"TimEnable",				Set_AP_TimEnable_Proc},//only for development purpose!! iwpriv ra0 set
+ 	{"get_fid",     set_get_fid},
+@@ -14611,6 +14622,30 @@ INT Send_QOSMAP_Configure(
+ #endif /* CONFIG_HOTSPOT_R2 */
+ #endif /* CONFIG_DOT11V_WNM */
+ 
++#if 1
++INT Set_PandoraBoxSmartEnable(
++	IN	PRTMP_ADAPTER	pAd, 
++	IN	PSTRING 		arg)
++{
++	UINT	enable = 0/*, apidx = 0*/;
++
++   enable = simple_strtol(arg, 0, 16);
++
++   if (enable==0x1)
++   {
++       pAd->bPandoraBoxSmartEn = 1;
++       MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("###Set to PandoraBoxSmart Function Enable..\n"));
++   }
++   else /* Disable Airplay*/
++   {
++      pAd->bPandoraBoxSmartEn = 0;
++      MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("###Set to PandoraBoxSmart Function Disable...\n"));
++   }
++
++   return TRUE;
++}
++#endif 
++
+ #ifdef AIRPLAY_SUPPORT
+ /*
+ ========================================================================
+diff --git a/mt7628/embedded/include/rtmp.h b/mt7628/embedded/include/rtmp.h
+index 7b4ef81..cc901a8 100644
+--- a/mt7628/embedded/include/rtmp.h
++++ b/mt7628/embedded/include/rtmp.h
+@@ -5505,6 +5505,8 @@ struct _RTMP_ADAPTER {
+ 	BOOLEAN bOpenFileSuccess;
+ #endif /* SINGLE_SKU_V2 */
+ 
++	BOOLEAN 		bPandoraBoxSmartEn;
++
+ #ifdef AIRPLAY_SUPPORT
+ /*
+ * Value:
+diff --git a/mt7628/embedded/common/cmm_profile.c b/mt7628/embedded/common/cmm_profile.c
+index 51a63a7..58e73f9 100644
+--- a/mt7628/embedded/common/cmm_profile.c
++++ b/mt7628/embedded/common/cmm_profile.c
+@@ -2520,6 +2520,18 @@ NDIS_STATUS	RTMPSetProfileParameters(
+ 			retval = RT_CfgSetCountryRegion(pAd, tmpbuf, BAND_24G);
+ 			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("CountryRegion=%d\n", pAd->CommonCfg.CountryRegion));
+ 		}
++
++#if 1
++		if(RTMPGetKeyParameter("PandoraBoxSmart", tmpbuf, 10, pBuffer, TRUE))
++		{
++			if(simple_strtol(tmpbuf, 0, 10) != 0)  /*Enable*/
++				pAd->bPandoraBoxSmartEn = TRUE;
++			else /*Disable*/
++				pAd->bPandoraBoxSmartEn = FALSE;
++			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("PandoraBox SmartFunction is %s!!!\n", pAd->bPandoraBoxSmartEn?"enabled":"disabled"));
++		}
++#endif
++
+ 		/*CountryRegionABand*/
+ 		if(RTMPGetKeyParameter("CountryRegionABand", tmpbuf, 25, pBuffer, TRUE))
+ 		{

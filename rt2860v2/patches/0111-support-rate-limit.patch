@@ -1,0 +1,270 @@
+diff --git a/rt2860v2/common/mlme.c b/rt2860v2/common/mlme.c
+old mode 100644
+new mode 100755
+diff --git a/rt2860v2/common/rtmp_init.c b/rt2860v2/common/rtmp_init.c
+old mode 100644
+new mode 100755
+diff --git a/rt2860v2/include/rtmp.h b/rt2860v2/include/rtmp.h
+old mode 100644
+new mode 100755
+index 357d7c2..d716b66
+--- a/rt2860v2/include/rtmp.h
++++ b/rt2860v2/include/rtmp.h
+@@ -1841,7 +1841,7 @@ typedef struct _COMMON_CONFIG {
+ 
+ 	BOOLEAN HT_Disable;	/* 1: disable HT function; 0: enable HT function */
+ 
+-#if defined (RT2883) || defined (RT3883)
++#if defined (RT2883) || defined (RT3883) || defined (CONFIG_RALINK_MT7620)
+ 	ULONG PhyRateLimit;	/* PHY Rate limit in Mbps */
+ 	INT		FixedRate;	/* Fix the rate during Rate Adaptation. FixedRate is ItemNo index into RateSwitch Table. -1 => disabled. */
+ 	BOOLEAN FineAGC;	/* Fine AGC enabled */
+diff --git a/rt2860v2/rate_ctrl/alg_grp.c b/rt2860v2/rate_ctrl/alg_grp.c
+old mode 100644
+new mode 100755
+index 48697d1..698736a
+--- a/rt2860v2/rate_ctrl/alg_grp.c
++++ b/rt2860v2/rate_ctrl/alg_grp.c
+@@ -684,7 +684,25 @@ VOID MlmeNewRateAdapt(
+ 	UCHAR CurrRateIdx = pEntry->CurrTxRateIndex;
+ 	PRTMP_TX_RATE_SWITCH_3S pCurrTxRate = PTX_RATE_SWITCH_ENTRY_3S(pTable, CurrRateIdx);
+ 
++	CHAR Rssi;
++	UCHAR NearStaLimitDownMCS;
+ 	pEntry->CurrTxRateStableTime++;
++	NearStaLimitDownMCS = MCS_3;
++ 	Rssi = RTMPAvgRssi(pAd, &pEntry->RssiSample);
++
++	if (pAd->RalinkCounters.OneSecFalseCCACnt > 3200)
++	{
++		NearStaLimitDownMCS = MCS_0;
++	}
++	else if (pAd->RalinkCounters.OneSecFalseCCACnt > 2500)
++	{
++		NearStaLimitDownMCS = MCS_2;
++	}
++	else
++	{
++		NearStaLimitDownMCS = MCS_3;
++	}
++
+ 
+ 	pEntry->LastSecTxRateChangeAction = RATE_NO_CHANGE;
+ 
+@@ -735,10 +753,43 @@ VOID MlmeNewRateAdapt(
+ 		else
+ #endif /*  TXBF_SUPPORT */
+ 		if (CurrRateIdx != DownRateIdx)
+-		{
+-			pEntry->CurrTxRateIndex = DownRateIdx;
+-			pEntry->LastSecTxRateChangeAction = RATE_DOWN;
+-		}
++ 		{
++			RTMP_TX_RATE_SWITCH *pDownTxRate = PTX_RATE_SWITCH_ENTRY(pTable, DownRateIdx);
++
++			/*If MODE_HTMIX Mode but pCurrTxRate == MCS_3,not drop*/
++			if( (Rssi > -65) && ( pCurrTxRate->Mode >= MODE_HTMIX ) && ( CurrRateIdx == NearStaLimitDownMCS) )
++			{
++				pEntry->LastSecTxRateChangeAction = RATE_NO_CHANGE;
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;Rssi[%d] > -60 and CurrMCS = MCS_3;pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			/*If MODE_HTMIX Mode but pCurrTxRate == MCS_3, up rate;if Mode == OFDM&CCK ,up rate*/
++			else if( (Rssi > -65) && ( (( pCurrTxRate->Mode >= MODE_HTMIX ) && ( CurrRateIdx < NearStaLimitDownMCS))
++				|| (pCurrTxRate->Mode == MODE_OFDM ) || ( pCurrTxRate->Mode == MODE_CCK ) ) )
++			{
++				pEntry->CurrTxRateIndex = NearStaLimitDownMCS;
++				pEntry->LastSecTxRateChangeAction = RATE_UP;
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;Rssi[%d] > -60 and CurrMCS < MCS_3;pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++
++			/*B/G/N Mix Mode drop CCK&OFDM for high performance*/
++			else if( (Rssi > -87) && ( pCurrTxRate->Mode >= MODE_HTMIX ) && ( pDownTxRate->Mode == MODE_OFDM ) )
++			{
++				pEntry->LastSecTxRateChangeAction = RATE_NO_CHANGE;
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;Rssi[%d] > -87, BGN MCS0 -> OFDM 6M,pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			/*B/G Mix Mode drop CCK for high performance*/
++			else if( (Rssi > -87) && (!( pEntry->SupportRateMode & SUPPORT_HT_MODE ))
++				&&( pCurrTxRate->Mode == MODE_OFDM ) && ( pDownTxRate->Mode == MODE_CCK) )
++			{
++				pEntry->LastSecTxRateChangeAction = RATE_NO_CHANGE;
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;Rssi[%d] > -87, OFDM 9M -> CCK 5M,pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			else
++			{
++				pEntry->CurrTxRateIndex = DownRateIdx;
++				pEntry->LastSecTxRateChangeAction = RATE_DOWN;
++			}
++ 		}
+ 	}
+ 	else
+ 	{
+@@ -777,14 +828,49 @@ VOID MlmeNewRateAdapt(
+ 					MlmeDecTxQuality(pEntry, pCurrTxRate->upMcs1);
+ 			}
+ 		}
+-		else if (pEntry->mcsGroup > 0) /* even if TxErrorRatio > TrainUp */
++		else
+ 		{
+-			/*  Moderate PER but some groups are not tried */
+-			bTrainUp = TRUE;
++			/*B/G/N Mix Mode Go back to MCS_3, Rssi > -65*/
++			if( (Rssi > -65) && (pEntry->SupportRateMode & SUPPORT_HT_MODE) && 
++				( (pCurrTxRate->Mode == MODE_OFDM ) || ( pCurrTxRate->Mode == MODE_CCK ) || (pCurrTxRate->Mode >= MODE_HTMIX && CurrRateIdx < NearStaLimitDownMCS) ) )
++			{
++				pEntry->CurrTxRateIndex = NearStaLimitDownMCS;
++				pEntry->LastSecTxRateChangeAction = RATE_UP;
++				//MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_WARN,("%s;Rssi[%d] > -60 and CCK&OFDM -> MCS_3;pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			/*B/G Mix Mode Go back to MCS_3, Rssi > -65*/
++			else if( (Rssi > -65) && ( pEntry->SupportRateMode & SUPPORT_OFDM_MODE )&&( !(pEntry->SupportRateMode & SUPPORT_HT_MODE) ) && 
++				( (pCurrTxRate->Mode == MODE_OFDM ) || ( pCurrTxRate->Mode == MODE_CCK ) ) && ( CurrRateIdx < MCS_3))
++			{
++				pEntry->CurrTxRateIndex = 3;
++				pEntry->LastSecTxRateChangeAction = RATE_UP;
++				//MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_WARN,("%s;Rssi[%d] > -60 and CCK -> OFDM;pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
+ 
+-			/* TxQuality[CurrRateIdx] must be decremented so that mcs won't decrease wrongly */
+-			MlmeDecTxQuality(pEntry, CurrRateIdx);  /*  quality very good in CurrRate */
+-			MlmeDecTxQuality(pEntry, UpRateIdx);    /*  may improve next UP rate's quality */
++			/*B/G/N Mix Mode Go back to MCS0*/
++			else if( (Rssi > -87) && (pEntry->SupportRateMode & SUPPORT_HT_MODE) && ( pCurrTxRate->Mode == MODE_CCK ) )
++			{
++				pEntry->CurrTxRateIndex = 0;
++				pEntry->LastSecTxRateChangeAction = RATE_UP;
++				//MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_WARN,("%s;Rssi[%d] > -87, CCK -> MCS0,pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			/* B/G Mix Mode Go back to CCK 11M */
++			else if( (Rssi > -87) && (pEntry->SupportRateMode & SUPPORT_OFDM_MODE)&&
++				(!(pEntry->SupportRateMode & SUPPORT_HT_MODE))&& ( pCurrTxRate->Mode == MODE_CCK ) )
++			{
++				pEntry->CurrTxRateIndex = 3;
++				pEntry->LastSecTxRateChangeAction = RATE_UP;
++				//MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_WARN,("%s;Rssi[%d] > -87, CCK -> OFDM,pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			if (pEntry->mcsGroup > 0) /* even if TxErrorRatio > TrainUp */
++			{
++				/*  Moderate PER but some groups are not tried */
++				bTrainUp = TRUE;
++ 
++				/* TxQuality[CurrRateIdx] must be decremented so that mcs won't decrease wrongly */
++				MlmeDecTxQuality(pEntry, CurrRateIdx);  /*  quality very good in CurrRate */
++				MlmeDecTxQuality(pEntry, UpRateIdx);    /*  may improve next UP rate's quality */
++			}
+ 		}
+ 
+ 		/*  Don't try up rate if it's greater than the limit */
+@@ -939,6 +1025,9 @@ VOID MlmeNewRateAdapt(
+         
+     ========================================================================
+ */
++
++extern INT FalseCCAthSelRaTable;
++
+ VOID APQuickResponeForRateUpExecAdapt(/* actually for both up and down */
+     IN PRTMP_ADAPTER pAd,
+     IN ULONG idx) 
+@@ -1170,8 +1259,47 @@ VOID APQuickResponeForRateUpExecAdapt(/* actually for both up and down */
+ 	{
+ 		if ((TxErrorRatio >= 50) || (TxErrorRatio >= TrainDown)) /* there will be train down again */
+ 		{
+-			MlmeSetMcsGroup(pAd, pEntry);
+-			DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("   QuickDRS: (Down) direct train down (TxErrorRatio >= TrainDown)\n"));
++#if 0 
++			/*modify by dragon, for near sta rate ,16/1/17 */
++			if ((Rssi > -65) && (pCurrTxRate->CurrMCS == MCS_3) && ( pCurrTxRate->Mode >= MODE_HTMIX ))
++			{
++				MlmeRestoreLastRate(pEntry);
++ 				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("--->Dragon, quilckly down rate!, %s,%d\n", __func__, __LINE__));
++			}
++			else
++			{
++				MlmeSetMcsGroup(pAd, pEntry);
++				
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("   QuickDRS: (Down) direct train down (TxErrorRatio >= TrainDown)\n"));
++			}
++#else
++			CHAR Rssi,DownRateIdx;
++			RTMP_TX_RATE_SWITCH *pDownTxRate = PTX_RATE_SWITCH_ENTRY(pTable, DownRateIdx);
++			Rssi = RTMPAvgRssi(pAd, &pEntry->RssiSample);
++			DownRateIdx = pCurrTxRate->downMcs;
++
++			/*B/G/N Mix Mode drop CCK & OFDM for high performance*/
++			if( (Rssi > -87) && ( pCurrTxRate->Mode >= MODE_HTMIX ) && ( pDownTxRate->Mode == MODE_OFDM ) )
++			{
++				MlmeRestoreLastRate(pEntry);
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;%d;Rssi > -87, QuickResponse BGN MCS0 -> OFDM 6M,pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,__LINE__,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			/*B/G Mix Mode drop CCK for high performance*/
++			else if( (Rssi > -87) && (!(pEntry->SupportRateMode & SUPPORT_HT_MODE))
++				&&( pCurrTxRate->Mode == MODE_OFDM ) && ( pDownTxRate->Mode == MODE_CCK) )
++			{
++				MlmeRestoreLastRate(pEntry);
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;%d;Rssi > -87, QuickResponse OFDM 9M -> CCK 5M,pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,__LINE__,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			else
++			{
++				MlmeSetMcsGroup(pAd, pEntry);
++				MlmeSetTxQuality(pEntry, pEntry->CurrTxRateIndex, DRS_TX_QUALITY_WORST_BOUND);
++				pEntry->CurrTxRateIndex = pCurrTxRate->downMcs;
++				
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("   QuickDRS: (Down) direct train down (TxErrorRatio >= TrainDown)\n"));
++			}
++#endif
+ 		}
+ 		else if ((pEntry->LastTxOkCount + 2) >= OneSecTxNoRetryOKRationCount)
+ 		{
+diff --git a/rt2860v2/rate_ctrl/alg_legacy.c b/rt2860v2/rate_ctrl/alg_legacy.c
+old mode 100644
+new mode 100755
+index 7cb1dfe..30e3408
+--- a/rt2860v2/rate_ctrl/alg_legacy.c
++++ b/rt2860v2/rate_ctrl/alg_legacy.c
+@@ -321,6 +321,24 @@ VOID APMlmeDynamicTxRateSwitching(
+ 				TmpIdx--;
+ 			}
+ 		}
++		else if ((CurrRateIdx > 0) && (CurrRateIdx > (TableSize - 1)))
++		{
++			CurrRateIdx = (TableSize - 1);
++
++			UpRateIdx = CurrRateIdx;
++
++			TmpIdx = CurrRateIdx - 1;
++			while(TmpIdx >= 0)
++			{
++				pTmpTxRate = PTX_RATE_SWITCH_ENTRY(pTable, TmpIdx);
++				if (pEntry->SupportHTMCS[pTmpTxRate->CurrMCS] == TRUE)
++				{
++					DownRateIdx = TmpIdx;
++					break;
++				}
++				TmpIdx--;
++			}
++		}
+ 
+ #ifdef DOT11_N_SUPPORT
+ 		/*
+diff --git a/rt2860v2_ap/Makefile b/rt2860v2_ap/Makefile
+index 5ad81ea..f7d94f1 100644
+--- a/rt2860v2_ap/Makefile
++++ b/rt2860v2_ap/Makefile
+@@ -47,6 +47,7 @@ rt2860v2_ap-objs += ../rt2860v2/common/cmm_data_pci.o
+ 
+ rt2860v2_ap-objs += ../rt2860v2/rate_ctrl/ra_ctrl.o
+ rt2860v2_ap-objs += ../rt2860v2/rate_ctrl/alg_legacy.o
++rt2860v2_ap-objs += ../rt2860v2/rate_ctrl/alg_grp.o
+ 
+ rt2860v2_ap-objs += ../rt2860v2/ap/ap.o
+ rt2860v2_ap-objs += ../rt2860v2/ap/ap_assoc.o
+@@ -291,7 +292,8 @@ EXTRA_CFLAGS += -DDYNAMIC_VGA_SUPPORT
+ EXTRA_CFLAGS += -DTX_STA_FIFO_EXT_SUPPORT
+ #EXTRA_CFLAGS += -DMICROWAVE_OVEN_SUPPORT
+ EXTRA_CFLAGS += -DMCS_LUT_SUPPORT -DPEER_DELBA_TX_ADAPT
+-EXTRA_CFLAGS += -DDROP_MASK_SUPPORT -DMULTI_CLIENT_SUPPORT
++EXTRA_CFLAGS += -DDROP_MASK_SUPPORT
++EXTRA_CFLAGS += -DNEW_RATE_ADAPT_SUPPORT
+ #EXTRA_CFLAGS += -DFIFO_EXT_SUPPORT
+ #EXTRA_CFLAGS += -DSPECIFIC_BCN_BUF_SUPPORT
+ ifeq ($(CONFIG_INTERNAL_PA_EXTERNAL_LNA),y)

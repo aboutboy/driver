@@ -1,0 +1,26 @@
+--- a/rt2860v2/common/cmm_info.c
++++ b/rt2860v2/common/cmm_info.c
+@@ -3504,20 +3504,11 @@ VOID	RTMPCommSiteSurveyData(
+ 		/*Channel*/
+ 		sprintf(msg+strlen(msg),"%-4d", pBss->Channel);
+ 
+-
+ 		/*SSID*/
+-	NdisZeroMemory(Ssid, (MAX_LEN_OF_SSID +1));
+-	if (RTMPCheckStrPrintAble((PCHAR)pBss->Ssid, pBss->SsidLen))
++		NdisZeroMemory(Ssid, (MAX_LEN_OF_SSID +1));
+ 		NdisMoveMemory(Ssid, pBss->Ssid, pBss->SsidLen);
+-	else
+-	{
+-		INT idx = 0;
+-		sprintf(Ssid, "0x");
+-		for (idx = 0; (idx < 14) && (idx < pBss->SsidLen); idx++)
+-			sprintf(Ssid + 2 + (idx*2), "%02X", (UCHAR)pBss->Ssid[idx]);
+-	}
+-		sprintf(msg+strlen(msg),"%-33s", Ssid);      
+-		
++		sprintf(msg+strlen(msg),"\n%s\n", Ssid);
++
+ 		/*BSSID*/
+ 		sprintf(msg+strlen(msg),"%02x:%02x:%02x:%02x:%02x:%02x   ", 
+ 			pBss->Bssid[0], 

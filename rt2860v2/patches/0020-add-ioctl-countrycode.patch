@@ -1,0 +1,50 @@
+diff --git a/rt2860v2/ap/ap_cfg.c b/rt2860v2/ap/ap_cfg.c
+index 0495399..ad8cfd1 100644
+--- a/rt2860v2/ap/ap_cfg.c
++++ b/rt2860v2/ap/ap_cfg.c
+@@ -3697,6 +3697,8 @@ INT RTMPAPQueryInformation(
+ 	POS_COOKIE pObj = (POS_COOKIE) pAd->OS_Cookie;
+ 	STRING	driverVersion[8];
+ 	UCHAR	apidx = pObj->ioctl_if;
++	int j;
++	char country_num[4]={0};
+ #ifdef WSC_AP_SUPPORT
+ 	UINT	WscPinCode = 0;
+ 	PWSC_PROFILE	pProfile;
+@@ -4229,6 +4231,24 @@ INT RTMPAPQueryInformation(
+ 				Status = -EFAULT;
+ 			}
+ 			break;
++
++		case RT_OID_GET_COUNTRYCODE:
++			wrq->u.data.length = sizeof(UINT);
++			for(j=0; j < NUM_OF_COUNTRIES; j++)
++			{
++				if ( !strncmp(pAd->CommonCfg.CountryCode,  allCountry[j].IsoName, 2) )
++				{
++					sprintf(country_num, "%d", allCountry[j].CountryNum);
++					if (copy_to_user(wrq->u.data.pointer, &country_num, wrq->u.data.length))
++					{
++						Status = -EFAULT;
++					}
++
++					break;
++				}
++			}
++			break;
++
+ 		case RT_OID_GET_ENCRYPTYPE:
+ 			{
+ 				wrq->u.data.length = sizeof(UINT);
+diff --git a/rt2860v2/include/oid.h b/rt2860v2/include/oid.h
+index 13dba7e..d094602 100644
+--- a/rt2860v2/include/oid.h
++++ b/rt2860v2/include/oid.h
+@@ -977,6 +977,7 @@ typedef struct _NDIS_802_11_CAPABILITY {
+ #define RT_OID_WSC_SET_CON_WPS_STOP                 0x0764
+ #endif /* CON_WPS */
+ 
++#define RT_OID_GET_COUNTRYCODE						0x0998
+ #define RT_OID_GET_ENCRYPTYPE						0x0999
+ 
+ 

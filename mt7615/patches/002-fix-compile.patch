@@ -1,0 +1,103 @@
+diff --git a/mt7615/chips/mt7615.c b/mt7615/chips/mt7615.c
+index 613537c..c6727be 100644
+--- a/mt7615/chips/mt7615.c
++++ b/mt7615/chips/mt7615.c
+@@ -3363,8 +3363,9 @@ UCHAR* mt7615_get_default_bin_image_file(RTMP_ADAPTER *pAd)
+ 	else if (multi_inf_get_idx(pAd) == 1) {		
+ 		MTWF_LOG(DBG_CAT_HW, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("Use %dst %s default bin.\n", multi_inf_get_idx(pAd), SECOND_BIN_FILE));
+ 		return SECOND_BIN_FILE;
+-#endif /* MT_SECOND_CARD */
+ 	}
++#endif /* MT_SECOND_CARD */
++
+ #if defined(MT_THIRD_CARD)
+ 	else if (multi_inf_get_idx(pAd) == 2) {		
+ 		MTWF_LOG(DBG_CAT_HW, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("Use %dst %s default bin.\n", multi_inf_get_idx(pAd), THIRD_BIN_FILE));
+diff --git a/mt7615/embedded/common/cmm_profile.c b/mt7615/embedded/common/cmm_profile.c
+index c447772..c986951 100644
+--- a/mt7615/embedded/common/cmm_profile.c
++++ b/mt7615/embedded/common/cmm_profile.c
+@@ -3207,11 +3207,11 @@ NDIS_STATUS	RTMPSetProfileParameters(
+ 
+ #ifdef DBDC_MODE
+             if (pAd->CommonCfg.dbdc_mode)
+-                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, (KBLU "[TxPower] BAND0: %ld, BAND1: %ld \n" KNRM, pAd->CommonCfg.TxPowerPercentage[BAND0], pAd->CommonCfg.TxPowerPercentage[BAND1]));
++                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("[TxPower] BAND0: %ld, BAND1: %ld \n", pAd->CommonCfg.TxPowerPercentage[BAND0], pAd->CommonCfg.TxPowerPercentage[BAND1]));
+             else
+-                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, (KBLU "[TxPower] BAND0: %ld \n" KNRM, pAd->CommonCfg.TxPowerPercentage[BAND0]));
++                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("[TxPower] BAND0: %ld \n", pAd->CommonCfg.TxPowerPercentage[BAND0]));
+ #else
+-            MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, (KBLU "[TxPower] BAND0: %ld \n" KNRM, pAd->CommonCfg.TxPowerPercentage[BAND0]));
++            MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("[TxPower] BAND0: %ld \n", pAd->CommonCfg.TxPowerPercentage[BAND0]));
+ #endif /* DBDC_MODE */      
+ 
+ 		}
+@@ -3268,11 +3268,11 @@ NDIS_STATUS	RTMPSetProfileParameters(
+ 
+ #ifdef DBDC_MODE
+             if (pAd->CommonCfg.dbdc_mode)
+-                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, (KBLU "[SKUenable] BAND0: %d, BAND1: %d \n" KNRM, pAd->CommonCfg.SKUenable[BAND0], pAd->CommonCfg.SKUenable[BAND1]));
++                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ( "[SKUenable] BAND0: %d, BAND1: %d \n" , pAd->CommonCfg.SKUenable[BAND0], pAd->CommonCfg.SKUenable[BAND1]));
+             else
+-                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, (KBLU "[SKUenable] BAND0: %d \n" KNRM, pAd->CommonCfg.SKUenable[BAND0]));
++                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ( "[SKUenable] BAND0: %d \n" , pAd->CommonCfg.SKUenable[BAND0]));
+ #else
+-            MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, (KBLU "[SKUenable] BAND0: %d \n" KNRM, pAd->CommonCfg.SKUenable[BAND0]));
++            MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ( "[SKUenable] BAND0: %d \n" , pAd->CommonCfg.SKUenable[BAND0]));
+ #endif /* DBDC_MODE */      
+         }
+ #endif /*SINGLE_SKU_V2 */
+@@ -3327,11 +3327,11 @@ NDIS_STATUS	RTMPSetProfileParameters(
+ 
+ #ifdef DBDC_MODE
+             if (pAd->CommonCfg.dbdc_mode)
+-                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, (KBLU "[PERCENTAGEenable] BAND0: %d, BAND1: %d \n" KNRM, pAd->CommonCfg.PERCENTAGEenable[BAND0], pAd->CommonCfg.PERCENTAGEenable[BAND1]));
++                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("[PERCENTAGEenable] BAND0: %d, BAND1: %d \n", pAd->CommonCfg.PERCENTAGEenable[BAND0], pAd->CommonCfg.PERCENTAGEenable[BAND1]));
+             else
+-                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, (KBLU "[PERCENTAGEenable] BAND0: %d \n" KNRM, pAd->CommonCfg.PERCENTAGEenable[BAND0]));
++                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("[PERCENTAGEenable] BAND0: %d \n", pAd->CommonCfg.PERCENTAGEenable[BAND0]));
+ #else
+-            MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, (KBLU "[PERCENTAGEenable] BAND0: %d \n" KNRM, pAd->CommonCfg.PERCENTAGEenable[BAND0]));
++            MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("[PERCENTAGEenable] BAND0: %d \n", pAd->CommonCfg.PERCENTAGEenable[BAND0]));
+ #endif /* DBDC_MODE */      
+         }
+ 
+@@ -3385,11 +3385,11 @@ NDIS_STATUS	RTMPSetProfileParameters(
+ 
+ #ifdef DBDC_MODE
+             if (pAd->CommonCfg.dbdc_mode)
+-                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, (KBLU "[BFBACKOFFenable] BAND0: %d, BAND1: %d \n" KNRM, pAd->CommonCfg.BFBACKOFFenable[BAND0], pAd->CommonCfg.BFBACKOFFenable[BAND1]));
++                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ( "[BFBACKOFFenable] BAND0: %d, BAND1: %d \n" , pAd->CommonCfg.BFBACKOFFenable[BAND0], pAd->CommonCfg.BFBACKOFFenable[BAND1]));
+             else
+-                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, (KBLU "[BFBACKOFFenable] BAND0: %d \n" KNRM, pAd->CommonCfg.BFBACKOFFenable[BAND0]));
++                MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ( "[BFBACKOFFenable] BAND0: %d \n" , pAd->CommonCfg.BFBACKOFFenable[BAND0]));
+ #else
+-            MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, (KBLU "[BFBACKOFFenable] BAND0: %d \n" KNRM, pAd->CommonCfg.BFBACKOFFenable[BAND0]));
++            MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ( "[BFBACKOFFenable] BAND0: %d \n" , pAd->CommonCfg.BFBACKOFFenable[BAND0]));
+ #endif /* DBDC_MODE */
+         }
+ 
+diff --git a/mt7615_ap/Makefile b/mt7615_ap/Makefile
+index 9ba7900..72b03ab 100644
+--- a/mt7615_ap/Makefile
++++ b/mt7615_ap/Makefile
+@@ -775,15 +775,15 @@ ifeq ($(CONFIG_MT7615_AP_RADIUS_ACCOUNTING),y)
+ 	EXTRA_CFLAGS += -DRADIUS_ACCOUNTING_SUPPORT
+ endif
+ 
+-ifneq ($(findstring 7615,$(CONFIG_RT_FIRST_CARD)),)
++#ifneq ($(findstring 7615,$(CONFIG_RT_FIRST_CARD)),)
+ 	EXTRA_CFLAGS += -DMT_FIRST_CARD
+ 	EXTRA_CFLAGS += -DMT_FIRST_IF_RF_OFFSET=$(CONFIG_RT_FIRST_IF_RF_OFFSET)
+-endif
++#endif
+ 
+-ifneq ($(findstring 7615,$(CONFIG_RT_SECOND_CARD)),)
++#ifneq ($(findstring 7615,$(CONFIG_RT_SECOND_CARD)),)
+ 	EXTRA_CFLAGS += -DMT_SECOND_CARD
+ 	EXTRA_CFLAGS += -DMT_SECOND_IF_RF_OFFSET=$(CONFIG_RT_SECOND_IF_RF_OFFSET)
+-endif
++#endif
+ 
+ ifneq ($(findstring 7615,$(CONFIG_RT_THIRD_CARD)),)
+ 	EXTRA_CFLAGS += -DMT_THIRD_CARD

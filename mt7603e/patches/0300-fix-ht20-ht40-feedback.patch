@@ -1,0 +1,108 @@
+--- a/mt76x3/ap/ap.c
++++ b/mt76x3/ap/ap.c
+@@ -2567,10 +2567,9 @@ VOID APOverlappingBSSScan(RTMP_ADAPTER *
+ 
+ 
+ 	/* We just care BSS who operating in 40MHz N Mode. */
+-	if ((!WMODE_CAP_N(pAd->CommonCfg.PhyMode)) ||
+-		(pAd->CommonCfg.RegTransmitSetting.field.BW  == BW_20)
+-		|| (pAd->CommonCfg.Channel > 14)
+-		)
++	if ((!WMODE_CAP_N(pAd->CommonCfg.PhyMode)) || 
++		(pAd->CommonCfg.Channel > 14) ||
++		(pAd->CommonCfg.ori_bw_before_2040_coex == BW_20))
+ 	{
+ 		DBGPRINT(RT_DEBUG_TRACE, ("The pAd->PhyMode=%d, BW=%d, didn't need channel adjustment!\n",
+ 				pAd->CommonCfg.PhyMode, pAd->CommonCfg.RegTransmitSetting.field.BW));
+@@ -2724,7 +2723,19 @@ VOID APOverlappingBSSScan(RTMP_ADAPTER *
+ 		pAd->CommonCfg.RegTransmitSetting.field.EXTCHA = 0;
+ 	}
+ 
+-	return;
++	/* Recover the bandwidth to support 20/40Mhz if the original setting does support that, and no need to fallback */
++	if ((needFallBack == FALSE)
++		&& (pAd->CommonCfg.ori_bw_before_2040_coex == BW_40)) {
++		pAd->CommonCfg.AddHTInfo.AddHtInfo.RecomWidth = pAd->CommonCfg.ori_bw_before_2040_coex;
++		pAd->CommonCfg.AddHTInfo.AddHtInfo.ExtChanOffset = pAd->CommonCfg.ori_ext_channel_before_2040_coex;
++		pAd->CommonCfg.LastBSSCoexist2040.field.BSS20WidthReq = 0;
++		pAd->CommonCfg.Bss2040CoexistFlag &= (~BSS_2040_COEXIST_INFO_SYNC);
++		pAd->CommonCfg.Bss2040NeedFallBack = 0;
++		pAd->CommonCfg.RegTransmitSetting.field.EXTCHA = pAd->CommonCfg.ori_ext_channel_before_2040_coex;
++		DBGPRINT(RT_DEBUG_TRACE,("rollback the bandwidth setting to support 20/40Mhz\n"));
++	}
++
++	return;	
+ }
+ #endif /* DOT11N_DRAFT3 */
+ #endif /* DOT11_N_SUPPORT */
+--- a/mt76x3/common/action.c
++++ b/mt76x3/common/action.c
+@@ -815,7 +815,11 @@ VOID PeerPublicAction(RTMP_ADAPTER *pAd,
+ 					BOOLEAN		bNeedFallBack = FALSE;
+ 									
+ 					/*ApPublicAction(pAd, Elem);*/
+-					if ((pBssCoexistIe->field.BSS20WidthReq ==1) || (pBssCoexistIe->field.Intolerant40 == 1))
++					if (pAd->CommonCfg.RegTransmitSetting.field.BW == BW_20)
++					{
++						DBGPRINT(RT_DEBUG_TRACE, ("BSS_2040_COEXIST: BW=%d, bBssCoexEnable=%d!\n", pAd->CommonCfg.RegTransmitSetting.field.BW, pAd->CommonCfg.bBssCoexEnable));
++					}
++					else if ((pBssCoexistIe->field.BSS20WidthReq ==1) || (pBssCoexistIe->field.Intolerant40 == 1))
+ 					{	
+ 						bNeedFallBack = TRUE;
+ 
+--- a/mt76x3/common/cmm_profile.c
++++ b/mt76x3/common/cmm_profile.c
+@@ -1958,6 +1958,13 @@ static void HTParametersHook(
+ 		else
+ 			pAd->CommonCfg.RegTransmitSetting.field.BW = BW_20;
+ 
++#ifdef DOT11N_DRAFT3
++		if (Value == BW_40)
++			pAd->CommonCfg.ori_bw_before_2040_coex = BW_40;
++		else
++			pAd->CommonCfg.ori_bw_before_2040_coex = BW_20;
++#endif /* DOT11N_DRAFT3 */
++
+ #ifdef MCAST_RATE_SPECIFIC
+ 		pAd->CommonCfg.MCastPhyMode.field.BW = pAd->CommonCfg.RegTransmitSetting.field.BW;
+ #endif /* MCAST_RATE_SPECIFIC */
+@@ -1973,9 +1980,26 @@ static void HTParametersHook(
+ 			pAd->CommonCfg.RegTransmitSetting.field.EXTCHA  = EXTCHA_BELOW;
+ 		else
+ 			pAd->CommonCfg.RegTransmitSetting.field.EXTCHA = EXTCHA_ABOVE;
++#ifdef DOT11N_DRAFT3
++		if (Value == 0)
++			pAd->CommonCfg.ori_ext_channel_before_2040_coex = EXTCHA_BELOW;
++		else
++			pAd->CommonCfg.ori_ext_channel_before_2040_coex = EXTCHA_ABOVE;
++#endif /* DOT11N_DRAFT3 */
+ 
+-		DBGPRINT(RT_DEBUG_TRACE, ("HT: Ext Channel = %s\n", (Value==0) ? "BELOW" : "ABOVE" ));
+-	}
++		if (pAd->CommonCfg.RegTransmitSetting.field.BW == BW_20)
++		{
++			pAd->CommonCfg.RegTransmitSetting.field.EXTCHA = EXTCHA_NONE;
++#ifdef DOT11N_DRAFT3
++			pAd->CommonCfg.ori_ext_channel_before_2040_coex = EXTCHA_NONE;
++#endif /* DOT11N_DRAFT3 */
++			DBGPRINT(RT_DEBUG_TRACE,("HT: Ext Channel = %s\n", "NONE" ));
++		}
++		else
++		{
++			DBGPRINT(RT_DEBUG_TRACE,("HT: Ext Channel = %s\n", (Value==0) ? "BELOW" : "ABOVE" ));
++		}
++ 	}
+ 
+ 	/* MSC*/
+ 	if (RTMPGetKeyParameter("HT_MCS", pValueStr, 50, pInput, TRUE))
+--- a/mt76x3/include/rtmp.h
++++ b/mt76x3/include/rtmp.h
+@@ -2026,6 +2026,8 @@ typedef struct _COMMON_CONFIG {
+ 
+ 	BOOLEAN bOverlapScanning;
+ 	BOOLEAN bBssCoexNotify;
++	UCHAR ori_bw_before_2040_coex;
++	UCHAR ori_ext_channel_before_2040_coex;
+ #endif /* DOT11N_DRAFT3 */
+ 
+ 	BOOLEAN bHTProtect;

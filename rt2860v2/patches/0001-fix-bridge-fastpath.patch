@@ -1,0 +1,119 @@
+--- a/rt2860v2/os/linux/br_ftph.c
++++ b/rt2860v2/os/linux/br_ftph.c
+@@ -34,7 +34,7 @@
+ #include "../net/bridge/br_private.h"
+ 
+ /* extern export symbol in other drivers */
+-/*
++#if 0
+ 	Example in other drivers:
+ 		UINT32 (*RALINK_FP_Handle)(PNDIS_PACKET pPacket);
+ 		EXPORT_SYMBOL(RALINK_FP_Handle);
+@@ -55,7 +55,7 @@
+ 			netif_rx(skb);
+ 		}
+ 	}
+-*/
++#endif
+ UINT32 BG_FTPH_PacketFromApHandle(
+ 	IN		PNDIS_PACKET	pPacket);
+ 
+@@ -87,6 +87,7 @@ Note:
+ */
+ VOID BG_FTPH_Init(VOID)
+ {
++	printk("RT2860v2 Fast Mode init.\n");
+ 	RALINK_FP_Handle = BG_FTPH_PacketFromApHandle;
+ } /* End of BG_FTPH_Init */
+ 
+@@ -108,6 +109,7 @@ Note:
+ */
+ VOID BG_FTPH_Remove(VOID)
+ {
++	printk("RT2860v2 Fast Mode exit.\n");
+ 	RALINK_FP_Handle = NULL;
+ } /* End of BG_FTPH_Init */
+ 
+@@ -145,9 +147,21 @@ UINT32 BG_FTPH_PacketFromApHandle(
+ 
+ 	if (pNetDev != NULL)
+ 	{
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++		if (br_port_get_rcu(pNetDev) != NULL)
++#else
+ 		if (pNetDev->br_port != NULL)
++#endif
+ 		{
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,12)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
++			/* br_fdb_get is not exported symbol, need exported in net/bridge/br.c */
++			pDstFdbEntry = __br_fdb_get(br_port_get_rcu(pNetDev)->br, pRxPkt->data, 0);
++			pSrcFdbEntry = __br_fdb_get(br_port_get_rcu(pNetDev)->br, pRxPkt->data + 6, 0);
++#elif  LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++			/* br_fdb_get is not exported symbol, need exported in net/bridge/br.c */
++			pDstFdbEntry = __br_fdb_get(br_port_get_rcu(pNetDev)->br, pRxPkt->data);
++			pSrcFdbEntry = __br_fdb_get(br_port_get_rcu(pNetDev)->br, pRxPkt->data + 6);
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,12)
+ 			pDstFdbEntry = br_fdb_get_hook(pNetDev->br_port->br, pRxPkt->data);
+ 			pSrcFdbEntry = br_fdb_get_hook(pNetDev->br_port->br, pRxPkt->data + 6);
+ #else
+@@ -163,7 +177,11 @@ UINT32 BG_FTPH_PacketFromApHandle(
+ 				(pDstFdbEntry->dst == NULL) ||
+ 				(pDstFdbEntry->dst->dev == NULL) ||
+ 				(pDstFdbEntry->dst->dev == pNetDev) ||
++#if  LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++				(br_port_get_rcu(pNetDev)->state != BR_STATE_FORWARDING) ||
++#else
+ 				(pNetDev->br_port->state != BR_STATE_FORWARDING) ||
++#endif
+ 				((pSrcFdbEntry->dst != NULL) &&
+ 					(pSrcFdbEntry->dst->dev != NULL) &&
+ 					(pSrcFdbEntry->dst->dev != pNetDev)))
+@@ -177,7 +195,11 @@ UINT32 BG_FTPH_PacketFromApHandle(
+ 				(pDstFdbEntry->dst->dev != NULL))
+ 			{
+ 				pRxPkt->dev = pDstFdbEntry->dst->dev;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
+ 				pDstFdbEntry->dst->dev->hard_start_xmit(pRxPkt, pDstFdbEntry->dst->dev);
++#else
++				pDstFdbEntry->dst->dev->netdev_ops->ndo_start_xmit(pRxPkt, pDstFdbEntry->dst->dev);
++#endif
+ 				return 0;
+ 			} /* End of if */
+ 		} /* End of if */
+--- a/rt2860v2_ap/Makefile
++++ b/rt2860v2_ap/Makefile
+@@ -72,6 +72,10 @@ rt2860v2_ap-objs += ../rt2860v2/os/linux
+ rt2860v2_ap-objs += ../rt2860v2/os/linux/ap_ioctl.o
+ rt2860v2_ap-objs += ../rt2860v2/os/linux/rbus_main_dev.o
+ 
++ifeq ($(CONFIG_RT_BRIDGE_FASTPATH),y)
++rt2860v2_ap-objs += ../rt2860v2/os/linux/br_ftph.o
++endif
++
+ ifeq ($(CONFIG_RT_ATE),y)
+ rt2860v2_ap-objs += ../rt2860v2/ate/common/rt_ate.o
+ rt2860v2_ap-objs += ../rt2860v2/ate/common/ate_pci.o
+@@ -370,6 +374,10 @@ EXTRA_CFLAGS += -DMAC_REPEATER_SUPPORT
+ endif
+ endif
+ 
++ifeq ($(CONFIG_RT_BRIDGE_FASTPATH),y)
++EXTRA_CFLAGS += -DBG_FT_SUPPORT
++endif
++
+ ifeq ($(CONFIG_RT_WSC),y)
+ EXTRA_CFLAGS += -DWSC_AP_SUPPORT
+ ifeq ($(CONFIG_RT_WSC_V2),y)
+--- a/rt2860v2/include/rt_config.h
++++ b/rt2860v2/include/rt_config.h
+@@ -245,6 +245,9 @@
+ #include "rt_txbf.h"
+ #endif /* TXBF_SUPPORT */
+ 
++#ifdef BG_FT_SUPPORT
++#include "br_ftph.h"
++#endif /* BG_FT_SUPPORT */
+ 
+ #endif	/* __RT_CONFIG_H__ */
+ 

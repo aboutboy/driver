@@ -1,0 +1,15 @@
+--- a/mt7610/include/oid.h
++++ b/mt7610/include/oid.h
+@@ -1061,6 +1061,12 @@ typedef struct _RT_802_11_MAC_ENTRY {
+ 	UINT32 ConnectedTime;
+ 	MACHTTRANSMIT_SETTING TxRate;
+ 	UINT32 LastRxRate;
++	ULONG 	TxPackets; //TxPackets.QuadPart
++	ULONG 	RxPackets;  //RxPackets.QuadPart
++	ULONG 	TxBytes;
++	ULONG 	RxBytes;
++	ULONG 	LastTxOkCount; /* TxSuccess count in last Rate Adaptation interval */
++	UCHAR 	LastTxPER;	/* Tx PER in last Rate Adaptation interval */
+ } RT_802_11_MAC_ENTRY, *PRT_802_11_MAC_ENTRY;
+ 
+ typedef struct _RT_802_11_MAC_TABLE {

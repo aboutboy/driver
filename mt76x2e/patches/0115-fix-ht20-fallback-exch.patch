@@ -1,0 +1,13 @@
+diff --git a/mt76x2/ap/ap.c b/mt76x2/ap/ap.c
+index cd53938..58d729a 100644
+--- a/mt76x2/ap/ap.c
++++ b/mt76x2/ap/ap.c
+@@ -2556,7 +2556,7 @@ VOID APOverlappingBSSScan(RTMP_ADAPTER *pAd)
+ 		pAd->CommonCfg.LastBSSCoexist2040.field.BSS20WidthReq = 1;
+ 		pAd->CommonCfg.Bss2040CoexistFlag |= BSS_2040_COEXIST_INFO_SYNC;
+ 		pAd->CommonCfg.Bss2040NeedFallBack = 1;
+-		//pAd->CommonCfg.RegTransmitSetting.field.EXTCHA = 0;
++		pAd->CommonCfg.RegTransmitSetting.field.EXTCHA = 0;
+ 	}
+ 
+ 	/* Recover the bandwidth to support 20/40Mhz if the original setting does support that, and no need to fallback */

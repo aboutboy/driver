@@ -1,0 +1,49 @@
+diff --git a/mt76x3/ap/ap_cfg.c b/mt76x3/ap/ap_cfg.c
+index 445009c..4cdce96 100644
+--- a/mt76x3/ap/ap_cfg.c
++++ b/mt76x3/ap/ap_cfg.c
+@@ -3029,6 +3029,8 @@ INT RTMPAPQueryInformation(
+ 	POS_COOKIE pObj = (POS_COOKIE) pAd->OS_Cookie;
+ 	RTMP_STRING driverVersion[16];
+ 	UCHAR apidx = pObj->ioctl_if;
++	int j;
++	char country_num[4]={0};
+ #ifdef WSC_AP_SUPPORT
+ 	UINT WscPinCode = 0;
+ 	PWSC_PROFILE pProfile;
+@@ -3172,6 +3174,23 @@ INT RTMPAPQueryInformation(
+ 			DBGPRINT(RT_DEBUG_TRACE, ("Status=%d\n", Status));
+ 			break;
+ 
++		case RT_OID_GET_COUNTRYCODE:
++			wrq->u.data.length = sizeof(UINT);
++			for(j=0; j < NUM_OF_COUNTRIES; j++)
++			{
++				if ( !strncmp(pAd->CommonCfg.CountryCode,  allCountry[j].IsoName, 2) )
++				{
++					sprintf(country_num, "%d", allCountry[j].CountryNum);
++					if (copy_to_user(wrq->u.data.pointer, &country_num, wrq->u.data.length))
++					{
++						Status = -EFAULT;
++					}
++
++					break;
++				}
++			}
++			break;
++
+ 		case RT_OID_GET_ENCRYPTYPE:
+ 			{
+ 				wrq->u.data.length = sizeof(UINT);
+diff --git a/mt76x3/include/oid.h b/mt76x3/include/oid.h
+index 2a4d440..2d48e25 100644
+--- a/mt76x3/include/oid.h
++++ b/mt76x3/include/oid.h
+@@ -947,6 +947,7 @@ typedef struct _NDIS_802_11_CAPABILITY {
+ #define RT_OID_NFC_STATUS							0x0930
+ #endif /* WSC_NFC_SUPPORT */
+ 
++#define RT_OID_GET_COUNTRYCODE						0x0998
+ #define RT_OID_GET_ENCRYPTYPE						0x0999
+ 
+ /* New for MeetingHouse Api support */

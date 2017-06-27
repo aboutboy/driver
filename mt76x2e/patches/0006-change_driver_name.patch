@@ -1,0 +1,20 @@
+--- a/mt76x2/include/os/rt_linux_cmm.h
++++ b/mt76x2/include/os/rt_linux_cmm.h
+@@ -59,7 +59,7 @@ void Rtmp_Drv_Ops_##_func(VOID *__pDrvOp
+ #define def_to_str(s)    #s
+ 
+ #ifdef RTMP_MAC_PCI
+-#define RTMP_DRV_NAME	"rtpci" xdef_to_str(RT28xx_MODE)
++#define RTMP_DRV_NAME	"mt76x2e" xdef_to_str(RT28xx_MODE)
+ RTMP_DECLARE_DRV_OPS_FUNCTION(pci);
+ #define RTMP_DRV_OPS_FUNCTION				RTMP_DRV_OPS_FUNCTION_BODY(pci)
+ #define RTMP_BUILD_DRV_OPS_FUNCTION_BODY	RTMP_BUILD_DRV_OPS_FUNCTION(pci)
+@@ -68,7 +68,7 @@ RTMP_DECLARE_DRV_OPS_FUNCTION(pci);
+ 
+ #else
+ 
+-#define RTMP_DRV_NAME	"rtpci"
++#define RTMP_DRV_NAME	"mt76x2e"
+ 
+ #endif /* OS_ABL_FUNC_SUPPORT */
+ 

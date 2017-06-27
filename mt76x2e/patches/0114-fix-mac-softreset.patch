@@ -1,0 +1,25 @@
+diff --git a/mt76x2/os/linux/rt_rbus_pci_drv.c b/mt76x2/os/linux/rt_rbus_pci_drv.c
+index ab30b24..4e797f5 100644
+--- a/mt76x2/os/linux/rt_rbus_pci_drv.c
++++ b/mt76x2/os/linux/rt_rbus_pci_drv.c
+@@ -1635,6 +1635,20 @@ VOID RTMPInitPCIeDevice(
+ 		pAd->infType = RTMP_DEV_INF_PCIE;
+ 		RTMP_IO_READ32(pAd, 0x00, &value);
+ 		pAd->ChipID = value;
++		
++#if 1
++		/* try reset device */
++		RTMP_IO_READ32(pAd, MAC_CSR0, &value);
++		DBGPRINT(RT_DEBUG_OFF, ("MT76XE MAC SoftReset!\n"));
++		value |= (3);
++		RTMP_IO_WRITE32(pAd, MAC_CSR0, value);
++		usleep_range(5000, 10000);
++		
++		RTMP_IO_READ32(pAd, MAC_CSR0, &value);
++		value &= ~(3);
++		RTMP_IO_WRITE32(pAd, MAC_CSR0, value);
++		usleep_range(50000, 100000);
++#endif
+ 
+ 		if (MT_REV_LT(pAd, MT7612E, REV_MT76x2E3)) {
+ 			RTMP_IO_READ32(pAd, 0x70c, &value); 

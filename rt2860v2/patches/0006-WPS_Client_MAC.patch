@@ -1,0 +1,28 @@
+--- a/rt2860v2/ap/ap_cfg.c
++++ b/rt2860v2/ap/ap_cfg.c
+@@ -7600,11 +7600,13 @@ INT	Show_Sat_Proc(
+ 					"\tWscConfStatus=%d\n"
+ 					"\tWscPinCode=%d\n"
+ 					"\tWscState=0x%x\n"
+-					"\tWscStatus=0x%x\n",
++					"\tWscStatus=0x%x\n"
++					"\tWscLatestMacAddr=%s\n",
+ 					pWscCtrl->WscConfMode, 
+ 					((pWscCtrl->WscMode == WSC_PIN_MODE) ? "PIN" : "PBC"),
+ 					pWscCtrl->WscConfStatus, pWscCtrl->WscEnrolleePinCode, 
+-					pWscCtrl->WscState, pWscCtrl->WscStatus);	
++					pWscCtrl->WscState, pWscCtrl->WscStatus,
++					PRINT_MAC(pAd->CommonCfg.LatestWSCMacAddr));
+ 		}
+ #endif /* WSC_INCLUDED */
+ 
+--- a/rt2860v2/include/rtmp.h
++++ b/rt2860v2/include/rtmp.h
+@@ -1783,6 +1783,7 @@ typedef struct _COMMON_CONFIG {
+ #ifdef WSC_INCLUDED
+ 	/* WSC hardware push button function 0811 */
+ 	UINT8 WscHdrPshBtnCheckCount;
++	UCHAR LatestWSCMacAddr[MAC_ADDR_LEN];
+ #endif				/* WSC_INCLUDED */
+ 
+ 

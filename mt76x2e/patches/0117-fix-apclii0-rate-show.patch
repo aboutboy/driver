@@ -1,0 +1,51 @@
+--- a/mt76x2/common/cmm_cfg.c
++++ b/mt76x2/common/cmm_cfg.c
+@@ -2225,11 +2225,19 @@ INT RTMP_COM_IoctlHandle(
+ 			RT_CMD_IOCTL_RATE *pRate = (RT_CMD_IOCTL_RATE *)pData;
+ 			HTTRANSMIT_SETTING HtPhyMode;
+ 			UINT8 BW = 0, GI = 0;
++			UCHAR phymode = 0;
+ 
+ #ifdef APCLI_SUPPORT
+-			if (pRate->priv_flags == INT_APCLI)
++			if (pRate->priv_flags == INT_APCLI){
+ 				memcpy(&HtPhyMode, &pAd->ApCfg.ApCliTab[pObj->ioctl_if].wdev.HTPhyMode, sizeof(HTTRANSMIT_SETTING));
+-			else
++#ifdef APCLI_AUTO_BW_SUPPORT
++				phymode = pAd->ApCfg.ApCliTab[pObj->ioctl_if].wdev.PhyMode;
++#else
++				phymode = pAd->CommonCfg.PhyMode;
++#endif 
++				PHY_MODE_RESET(phymode,HtPhyMode);	
++
++			}else
+ #endif /* APCLI_SUPPORT */
+ #ifdef WDS_SUPPORT
+ 			if (pRate->priv_flags == INT_WDS)
+--- a/mt76x2/include/rtmp_comm.h
++++ b/mt76x2/include/rtmp_comm.h
+@@ -403,9 +403,8 @@ enum Rate_GI
+ };
+ #define Rate_MCS 10
+ 
+-#define MBSS_PHY_MODE_RESET(__BssId, __HtPhyMode)                               \
++#define PHY_MODE_RESET(__PhyMode, __HtPhyMode)                               \
+         {                                                                                                                       \
+-                UCHAR __PhyMode = pAd->ApCfg.MBSSID[__BssId].wdev.PhyMode;      \
+                 if ((__PhyMode == WMODE_B) &&                                                   \
+                         (__HtPhyMode.field.MODE != MODE_CCK))                           \
+                 {                                                                                                               \
+@@ -434,5 +433,13 @@ enum Rate_GI
+                }       \
+         }
+ 
++
++#define MBSS_PHY_MODE_RESET(__BssId, __HtPhyMode)                               \
++        {                                                                                                                       \
++                UCHAR __PhyMode = pAd->ApCfg.MBSSID[__BssId].wdev.PhyMode;      \
++  				PHY_MODE_RESET(__PhyMode,__HtPhyMode);    \
++        }
++
++
+ #endif /* __RT_COMM_H__ */
+ 

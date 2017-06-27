@@ -1,0 +1,839 @@
+diff --git a/mt76x3/rate_ctrl/alg_grp.c b/mt76x3/rate_ctrl/alg_grp.c
+old mode 100644
+new mode 100755
+index 3fe4bb8..154ef19
+--- a/mt76x3/rate_ctrl/alg_grp.c
++++ b/mt76x3/rate_ctrl/alg_grp.c
+@@ -1085,7 +1085,21 @@ VOID NewRateAdaptMT(
+ 	UCHAR *pTable = pEntry->pTable;
+ 	UCHAR CurrRateIdx = pEntry->CurrTxRateIndex;
+ 	RTMP_RA_GRP_TB *pCurrTxRate = PTX_RA_GRP_ENTRY(pTable, CurrRateIdx);
+-	//UCHAR		index;
++	CHAR Rssi = RTMPAvgRssi(pAd, &pEntry->RssiSample);
++	UCHAR NearStaLimitDownMCS = MCS_3;
++
++	if (pAd->RalinkCounters.OneSecFalseCCACnt > 3200)
++	{
++		NearStaLimitDownMCS = MCS_0;
++	}
++	else if (pAd->RalinkCounters.OneSecFalseCCACnt > 2500)
++	{
++		NearStaLimitDownMCS = MCS_2;
++	}
++	else
++	{
++		NearStaLimitDownMCS = MCS_3;
++	}
+ 
+ 	pEntry->LastSecTxRateChangeAction = RATE_NO_CHANGE;
+ 
+@@ -1096,9 +1110,42 @@ VOID NewRateAdaptMT(
+ 
+ 		if (CurrRateIdx != DownRateIdx)
+ 		{
++			RTMP_RA_GRP_TB *pDownTxRate = PTX_RA_GRP_ENTRY(pTable, DownRateIdx);
++
++			/*If MODE_HTMIX Mode but pCurrTxRate == MCS_3,not drop*/
++			if( (Rssi > -65) && ( pCurrTxRate->Mode >= MODE_HTMIX ) && ( CurrRateIdx == NearStaLimitDownMCS) )
++			{
++				pEntry->LastSecTxRateChangeAction = RATE_NO_CHANGE;
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;Rssi[%d] > -60 and CurrMCS = MCS_3;pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			/*If MODE_HTMIX Mode but pCurrTxRate == MCS_3, up rate;if Mode == OFDM&CCK ,up rate*/
++			else if( (Rssi > -65) && ( (( pCurrTxRate->Mode >= MODE_HTMIX ) && ( CurrRateIdx < NearStaLimitDownMCS))
++				|| (pCurrTxRate->Mode == MODE_OFDM ) || ( pCurrTxRate->Mode == MODE_CCK ) ) )
++			{		
++				pEntry->CurrTxRateIndex = NearStaLimitDownMCS;
++				pEntry->LastSecTxRateChangeAction = RATE_UP;
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;Rssi[%d] > -60 and CurrMCS < MCS_3;pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++
++			/*B/G/N Mix Mode drop CCK&OFDM for high performance*/
++			else if( (Rssi > -87) && ( pCurrTxRate->Mode >= MODE_HTMIX ) && ( pDownTxRate->Mode == MODE_OFDM ) )
++			{
++				pEntry->LastSecTxRateChangeAction = RATE_NO_CHANGE;
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;Rssi[%d] > -87, BGN MCS0 -> OFDM 6M,pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			/*B/G Mix Mode drop CCK for high performance*/
++			else if( (Rssi > -87) && (!( pEntry->SupportRateMode & SUPPORT_HT_MODE ))
++				&&( pCurrTxRate->Mode == MODE_OFDM ) && ( pDownTxRate->Mode == MODE_CCK) )
++		{
++			pEntry->LastSecTxRateChangeAction = RATE_NO_CHANGE;
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;Rssi[%d] > -87, OFDM 9M -> CCK 5M,pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++		}
++		else
++		{
+ 			pEntry->CurrTxRateIndex = DownRateIdx;
+ 			pEntry->LastSecTxRateChangeAction = RATE_DOWN;
+ 		}
++		}
+ 
+ 	} else {
+ 		//RTMP_RA_GRP_TB *pUpRate = PTX_RA_GRP_ENTRY(pTable, UpRateIdx);
+@@ -1134,14 +1181,49 @@ VOID NewRateAdaptMT(
+ 					MlmeDecTxQuality(pEntry, pCurrTxRate->upMcs1);
+ 			}
+ 		}
+-		else if (pEntry->mcsGroup > 0) /* even if TxErrorRatio > TrainUp */
++		else
+ 		{
+-			/*  Moderate PER but some groups are not tried */
+-			bTrainUp = TRUE;
++			/*B/G/N Mix Mode Go back to MCS_3, Rssi > -65*/
++			if( (Rssi > -65) && (pEntry->SupportRateMode & SUPPORT_HT_MODE) && 
++				( (pCurrTxRate->Mode == MODE_OFDM ) || ( pCurrTxRate->Mode == MODE_CCK ) || (pCurrTxRate->Mode >= MODE_HTMIX && CurrRateIdx < NearStaLimitDownMCS) ) )
++			{
++				pEntry->CurrTxRateIndex = NearStaLimitDownMCS;
++				pEntry->LastSecTxRateChangeAction = RATE_UP;
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;Rssi[%d] > -60 and CCK&OFDM -> MCS_3;pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			/*B/G Mix Mode Go back to MCS_3, Rssi > -65*/
++			else if( (Rssi > -65) && ( pEntry->SupportRateMode & SUPPORT_OFDM_MODE )&&( !(pEntry->SupportRateMode & SUPPORT_HT_MODE) ) && 
++				( (pCurrTxRate->Mode == MODE_OFDM ) || ( pCurrTxRate->Mode == MODE_CCK ) ) && ( CurrRateIdx < MCS_3))
++			{		
++				pEntry->CurrTxRateIndex = 3;
++				pEntry->LastSecTxRateChangeAction = RATE_UP;
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;Rssi[%d] > -60 and CCK -> OFDM;pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			
++			/*B/G/N Mix Mode Go back to MCS0*/
++			else if( (Rssi > -87) && (pEntry->SupportRateMode & SUPPORT_HT_MODE) && ( pCurrTxRate->Mode == MODE_CCK ) )
++			{
++				pEntry->CurrTxRateIndex = 0;
++				pEntry->LastSecTxRateChangeAction = RATE_UP;
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;Rssi[%d] > -87, CCK -> MCS0,pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			/* B/G Mix Mode Go back to CCK 11M */
++			else if( (Rssi > -87) && (pEntry->SupportRateMode & SUPPORT_OFDM_MODE)&&
++				(!(pEntry->SupportRateMode & SUPPORT_HT_MODE))&& ( pCurrTxRate->Mode == MODE_CCK ) )
++			{
++				pEntry->CurrTxRateIndex = 3;
++				pEntry->LastSecTxRateChangeAction = RATE_UP;
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;Rssi[%d] > -87, CCK -> OFDM,pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,Rssi,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			if (pEntry->mcsGroup > 0) /* even if TxErrorRatio > TrainUp */
++			{
++				/*  Moderate PER but some groups are not tried */
++				bTrainUp = TRUE;
+ 
+-			/* TxQuality[CurrRateIdx] must be decremented so that mcs won't decrease wrongly */
+-			MlmeDecTxQuality(pEntry, CurrRateIdx);  /*  quality very good in CurrRate */
+-			MlmeDecTxQuality(pEntry, UpRateIdx);    /*  may improve next UP rate's quality */
++				/* TxQuality[CurrRateIdx] must be decremented so that mcs won't decrease wrongly */
++				MlmeDecTxQuality(pEntry, CurrRateIdx);  /*  quality very good in CurrRate */
++				MlmeDecTxQuality(pEntry, UpRateIdx);    /*  may improve next UP rate's quality */
++			}
+ 		}
+ 
+ 		/*  If UpRate is good then train up in current BF state */
+@@ -1213,6 +1295,8 @@ VOID NewRateAdaptMT(
+         
+     ========================================================================
+ */
++extern INT FalseCCAthSelRaTable;
++
+ VOID QuickResponeForRateUpExecAdaptMT(/* actually for both up and down */
+     IN PRTMP_ADAPTER pAd,
+     IN UINT idx) 
+@@ -1226,6 +1310,9 @@ VOID QuickResponeForRateUpExecAdaptMT(/* actually for both up and down */
+ 	CHAR					Rssi, ratio;
+ 	ULONG					OneSecTxNoRetryOKRationCount;
+ 	BOOLEAN					rateChanged;
++#ifdef MULTI_CLIENT_SUPPORT
++	INT					MaxPerThreshlod = 50;
++#endif
+ 
+ 	MT_TX_COUNTER TxInfo;
+ 	//UCHAR HwAggRateIndex;
+@@ -1279,6 +1366,39 @@ VOID QuickResponeForRateUpExecAdaptMT(/* actually for both up and down */
+ 	CurrRateIdx = pEntry->CurrTxRateIndex;
+ 	pCurrTxRate = PTX_RA_GRP_ENTRY(pTable, CurrRateIdx);
+ 
++/* here for full multiclient raa table ,we modify the rate table train up/down, by dragon, 16/1/25*/
++#ifdef MULTI_CLIENT_SUPPORT
++	if ((Rssi > -65) && (pCurrTxRate->Mode >= MODE_HTMIX) 
++	&& (pEntry->perThrdAdj == 1)
++	&& is_multiclient_mode_on(pAd))
++	{
++		TrainUp		= (pCurrTxRate->TrainUp << 1);
++		TrainDown	= (pCurrTxRate->TrainDown  << 1);
++
++		if ((pCurrTxRate->CurrMCS !=  MCS_0) || (pCurrTxRate->CurrMCS !=  MCS_1) 
++ 			|| (pCurrTxRate->CurrMCS !=  MCS_2))
++		{
++			TrainUp = ( TrainUp > MaxPerThreshlod) ? (MaxPerThreshlod - 10):TrainUp ;
++			TrainDown= ( TrainDown > MaxPerThreshlod) ? MaxPerThreshlod:(TrainDown - 5) ;
++		}
++	}
++	else if ((pCurrTxRate->Mode >= MODE_HTMIX) 
++		&& (pEntry->perThrdAdj == 1)
++		&& is_multiclient_mode_on(pAd)
++		&& pAd->RalinkCounters.OneSecFalseCCACnt < FalseCCAthSelRaTable) /*Far sta, base FalseCCA */
++	{
++		TrainUp		= (pCurrTxRate->TrainUp << 1);
++		TrainDown	= (pCurrTxRate->TrainDown  << 1);
++
++		if ((pCurrTxRate->CurrMCS !=  MCS_0) || (pCurrTxRate->CurrMCS !=  MCS_1) 
++ 			|| (pCurrTxRate->CurrMCS !=  MCS_2))
++		{
++			TrainUp = ( TrainUp > MaxPerThreshlod) ? (MaxPerThreshlod - 10):TrainUp ;
++			TrainDown= ( TrainDown > MaxPerThreshlod) ? MaxPerThreshlod:(TrainDown - 5) ;
++		}
++	}
++	else
++#endif
+ 	{
+ 		TrainUp		= pCurrTxRate->TrainUp;
+ 		TrainDown	= pCurrTxRate->TrainDown;
+@@ -1407,11 +1527,31 @@ VOID QuickResponeForRateUpExecAdaptMT(/* actually for both up and down */
+ 	{
+ 		if ((TxErrorRatio >= 50) || (TxErrorRatio >= TrainDown)) /* there will be train down again */
+ 		{
+-			MlmeSetMcsGroup(pAd, pEntry);
+-			MlmeSetTxQuality(pEntry, pEntry->CurrTxRateIndex, DRS_TX_QUALITY_WORST_BOUND);
+-			pEntry->CurrTxRateIndex = pCurrTxRate->downMcs;
+-			DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("   QuickDRS: (Down) direct train down (TxErrorRatio >= TrainDown)\n"));
+-		}
++			CHAR Rssi = RTMPAvgRssi(pAd, &pEntry->RssiSample);
++			CHAR DownRateIdx = pCurrTxRate->downMcs;
++			RTMP_RA_GRP_TB *pDownTxRate = PTX_RA_GRP_ENTRY(pTable, DownRateIdx);
++	
++			/*B/G/N Mix Mode drop CCK & OFDM for high performance*/
++			if( (Rssi > -87) && ( pCurrTxRate->Mode >= MODE_HTMIX ) && ( pDownTxRate->Mode == MODE_OFDM ) )
++			{
++				MlmeRestoreLastRate(pEntry);
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;%d;Rssi > -87, QuickResponse BGN MCS0 -> OFDM 6M,pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,__LINE__,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			/*B/G Mix Mode drop CCK for high performance*/
++			else if( (Rssi > -87) && (!(pEntry->SupportRateMode & SUPPORT_HT_MODE))
++				&&( pCurrTxRate->Mode == MODE_OFDM ) && ( pDownTxRate->Mode == MODE_CCK) )
++			{
++				MlmeRestoreLastRate(pEntry);
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;%d;Rssi > -87, QuickResponse OFDM 9M -> CCK 5M,pCurrTxRate->CurrMCS=%d,CurrRateIdx=%d\n",__FUNCTION__,__LINE__,pCurrTxRate->CurrMCS,CurrRateIdx));
++			}
++			else
++			{
++				MlmeSetMcsGroup(pAd, pEntry);
++				MlmeSetTxQuality(pEntry, pEntry->CurrTxRateIndex, DRS_TX_QUALITY_WORST_BOUND);
++				pEntry->CurrTxRateIndex = pCurrTxRate->downMcs;
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("   QuickDRS: (Down) direct train down (TxErrorRatio >= TrainDown)\n"));
++			}
++    		}
+ 		else if ((pEntry->LastTxOkCount + 2) >= OneSecTxNoRetryOKRationCount)
+ 		{
+ 			MlmeRestoreLastRate(pEntry);
+@@ -1483,6 +1623,9 @@ static VOID HighTrafficRateAlg(RTMP_ADAPTER *pAd, MAC_TABLE_ENTRY *pEntry, MT_TX
+ 	PUCHAR pTable = pEntry->pTable;
+ 	UCHAR Rate1ErrorRatio = 0, HwAggRateIndex = 0;
+ 	UINT32 Rate1TxCnt, Rate1SuccessCnt, Rate1FailCount, TxTotalCnt;
++#ifdef MULTI_CLIENT_SUPPORT
++	INT	MaxPerThreshlod = 50;
++#endif
+ 
+ 	TxTotalCnt = Rate1TxCnt = Rate1SuccessCnt = Rate1FailCount = 0;
+ 
+@@ -1545,9 +1688,46 @@ static VOID HighTrafficRateAlg(RTMP_ADAPTER *pAd, MAC_TABLE_ENTRY *pEntry, MT_TX
+ 	*/
+ 	if ((Rssi > -65) && (pCurrTxRate->Mode >= MODE_HTMIX) && pEntry->perThrdAdj == 1)
+ 	{
++#ifdef MULTI_CLIENT_SUPPORT
++		if (is_multiclient_mode_on(pAd))
++		{
++			TrainUp     = (pCurrTxRate->TrainUp << 1);
++			TrainDown   = (pCurrTxRate->TrainDown  << 1);
++        
++			if ((pCurrTxRate->CurrMCS !=  MCS_0) || (pCurrTxRate->CurrMCS !=  MCS_1) 
++				|| (pCurrTxRate->CurrMCS !=  MCS_2))
++			{
++				TrainUp = ( TrainUp > MaxPerThreshlod) ? (MaxPerThreshlod - 10):TrainUp ;
++				TrainDown= ( TrainDown > MaxPerThreshlod) ? MaxPerThreshlod:(TrainDown - 5) ;
++			}
++		}
++		else
++		{
++			TrainUp     = (pCurrTxRate->TrainUp + (pCurrTxRate->TrainUp >> 1));
++			TrainDown   = (pCurrTxRate->TrainDown + (pCurrTxRate->TrainDown >> 1));
++		}
++#else
+ 		TrainUp     = (pCurrTxRate->TrainUp + (pCurrTxRate->TrainUp >> 1));
+ 		TrainDown   = (pCurrTxRate->TrainDown + (pCurrTxRate->TrainDown >> 1));
++#endif
++	}
++#ifdef MULTI_CLIENT_SUPPORT
++	else if ((pCurrTxRate->Mode >= MODE_HTMIX) 
++		&& (pEntry->perThrdAdj == 1)
++		&& is_multiclient_mode_on(pAd)
++		&& pAd->RalinkCounters.OneSecFalseCCACnt < FalseCCAthSelRaTable) /*Far sta, base FalseCCA */
++	{
++		TrainUp		= (pCurrTxRate->TrainUp << 1);
++		TrainDown	= (pCurrTxRate->TrainDown  << 1);
++
++		if ((pCurrTxRate->CurrMCS !=  MCS_0) || (pCurrTxRate->CurrMCS !=  MCS_1) 
++ 			|| (pCurrTxRate->CurrMCS !=  MCS_2))
++		{
++			TrainUp = ( TrainUp > MaxPerThreshlod) ? (MaxPerThreshlod - 10):TrainUp ;
++			TrainDown= ( TrainDown > MaxPerThreshlod) ? MaxPerThreshlod:(TrainDown - 5) ;
++		}
+ 	}
++#endif
+     else
+ #endif /*  DOT11_N_SUPPORT */
+ 	{
+@@ -1569,7 +1749,7 @@ static UCHAR LowTrafficRateAlg(RTMP_ADAPTER *pAd, MAC_TABLE_ENTRY *pEntry,  MT_T
+ 	UINT32 TxSuccCount = 0;
+ 	RTMP_RA_GRP_TB *pCurrTxRate;
+ 	PUCHAR pTable = pEntry->pTable;
+-	UCHAR CurrRateIdx = pEntry->CurrTxRateIndex;
++	UCHAR CurrRateIdx = pEntry->CurrTxRateIndex;;
+ 
+ 
+ 	TxSuccCount = (pEntry->OneSecTxRetryOkCount + pEntry->OneSecTxNoRetryOkCount - pEntry->OneSecTxFailCount);
+@@ -1580,7 +1760,7 @@ static UCHAR LowTrafficRateAlg(RTMP_ADAPTER *pAd, MAC_TABLE_ENTRY *pEntry,  MT_T
+ 		ErrToSuccRatio = 0xff;
+ 
+ 
+-	pCurrTxRate = PTX_RA_GRP_ENTRY(pTable, CurrRateIdx);
++	pCurrTxRate = PTX_RA_GRP_ENTRY(pTable, CurrRateIdx);;
+ 
+ 	if (TxSuccCount)
+ 	{
+@@ -1955,9 +2135,7 @@ VOID APQuickResponeForRateUpExecAdapt(/* actually for both up and down */
+ #endif /* DBG_CTRL_SUPPORT */
+ 
+ 	/*  Handle the low traffic case */
+-	if ((TxCnt <= 15) && 
+-		(pEntry->HTPhyMode.field.MODE == MODE_HTMIX) &&
+-		(pEntry->HTPhyMode.field.MCS > 1))
++	if (TxCnt <= 15)
+ 	{
+ 		/*  Go back to the original rate */
+ 		MlmeRestoreLastRate(pEntry);
+@@ -2056,8 +2234,17 @@ VOID APQuickResponeForRateUpExecAdapt(/* actually for both up and down */
+ 	{
+ 		if ((TxErrorRatio >= 50) || (TxErrorRatio >= TrainDown)) /* there will be train down again */
+ 		{
+-			MlmeSetMcsGroup(pAd, pEntry);
+-			DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("   QuickDRS: (Down) direct train down (TxErrorRatio >= TrainDown)\n"));
++			/*modify by dragon, for near sta rate ,16/1/17 */
++			if ((Rssi > -65) && (pCurrTxRate->CurrMCS == MCS_3) && ( pCurrTxRate->Mode >= MODE_HTMIX ))
++			{
++				MlmeRestoreLastRate(pEntry);
++ 				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("--->Dragon, quilckly down rate!, %s,%d\n", __func__, __LINE__));
++			}
++			else
++			{
++				MlmeSetMcsGroup(pAd, pEntry);
++				DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("   QuickDRS: (Down) direct train down (TxErrorRatio >= TrainDown)\n"));
++			}
+ 		}
+ 		else if ((pEntry->LastTxOkCount + 2) >= OneSecTxNoRetryOKRationCount)
+ 		{
+diff --git a/mt76x3/rate_ctrl/alg_legacy.c b/mt76x3/rate_ctrl/alg_legacy.c
+old mode 100644
+new mode 100755
+index 1749a04..5707750
+--- a/mt76x3/rate_ctrl/alg_legacy.c
++++ b/mt76x3/rate_ctrl/alg_legacy.c
+@@ -118,8 +118,14 @@ VOID APMlmeDynamicTxRateSwitching(RTMP_ADAPTER *pAd)
+ 
+ 			if ( pAd->MacTab.Size == 1 )
+ 			{
++#ifdef MULTI_CLIENT_SUPPORT
++				if ( (((pTable == RateSwitchTableAdapt11N2S) || (pTable == RateSwitchTableAdapt11N2SForMultiClients)) && pEntry->HTPhyMode.field.MCS >= 14 ) ||
++					(((pTable == RateSwitchTableAdapt11N1S) || (pTable == RateSwitchTableAdapt11N1SForMultiClients)) && pEntry->HTPhyMode.field.MCS >= 6 ) )
++#else
+ 				if ( ((pTable == RateSwitchTableAdapt11N2S) && pEntry->HTPhyMode.field.MCS >= 14 ) ||
+ 					((pTable == RateSwitchTableAdapt11N1S) && pEntry->HTPhyMode.field.MCS >= 6 ) )
++#endif
++
+ 					pAd->bDisableRtsProtect = TRUE;
+ 				else
+ 					pAd->bDisableRtsProtect = FALSE;
+@@ -330,6 +336,24 @@ VOID APMlmeDynamicTxRateSwitching(RTMP_ADAPTER *pAd)
+ 					TmpIdx--;
+ 				}
+ 			}
++			else if ((CurrRateIdx > 0) && (CurrRateIdx > (TableSize - 1)))
++			{
++				CurrRateIdx = (TableSize - 1);
++		
++				UpRateIdx = CurrRateIdx;
++                
++				TmpIdx = CurrRateIdx - 1;
++				while(TmpIdx >= 0)
++				{
++					pTmpTxRate = PTX_RA_LEGACY_ENTRY(pTable, TmpIdx);
++					if (pEntry->SupportHTMCS[pTmpTxRate->CurrMCS] == TRUE)
++					{
++						DownRateIdx = TmpIdx;
++						break;
++					}
++					TmpIdx--;
++				}
++			}
+ 		}
+ 
+ #ifdef DOT11_N_SUPPORT
+@@ -628,9 +652,7 @@ VOID APQuickResponeForRateUpExec(
+ 			MlmeRALog(pAd, pEntry, RAL_QUICK_DRS, TxErrorRatio, TxTotalCnt);
+ #endif /* DBG_CTRL_SUPPORT */
+ 
+-		if ((TxCnt <= 15) && 
+-			(pEntry->HTPhyMode.field.MODE == MODE_HTMIX) &&
+-			(pEntry->HTPhyMode.field.MCS > 1))
++        if (TxCnt <= 15 && pEntry->HTPhyMode.field.MCS > 1)
+         {
+ 			MlmeClearAllTxQuality(pEntry);
+ 
+diff --git a/mt76x3/rate_ctrl/ra_ctrl.c b/mt76x3/rate_ctrl/ra_ctrl.c
+old mode 100644
+new mode 100755
+index acb6071..e997ae6
+--- a/mt76x3/rate_ctrl/ra_ctrl.c
++++ b/mt76x3/rate_ctrl/ra_ctrl.c
+@@ -319,6 +319,72 @@ UCHAR RateSwitchTableAdapt11G[] = {
+ #define SUPPORT_SHORT_GI_RA		/* Support switching to Short GI rates in RA */
+ #endif /*  RANGE_EXTEND */
+ 
++#ifdef MULTI_CLIENT_SUPPORT
++UCHAR RateSwitchTableAdapt11N1SForMultiClients[] = {
++/*  item no.   mcs   highPERThrd  upMcs3     upMcs1
++           mode   lowPERThrd  downMcs     upMcs2
++*/
++	 12,   7,  0,  0,   0,   0,    0,     0,   0,   0,
++	 0, 0x21,  0, 30,  50,  11,    1,     1,   1,   7,/* mcs0 */
++	 1, 0x21,  1, 20,  50,   0,    2,     2,   2,  13,/* mcs1 */
++	 2, 0x21,  2, 20,  50,   1,    3,     3,   3,  20,/* mcs2 */
++	 3, 0x21,  3, 15,  50,   2,    4,     4,   4,  26,/* mcs3 */
++	 4, 0x21,  4, 15,  30,   3,    5,     5,   5,  39,/* mcs4 */
++	 5, 0x21,  5, 15,  30,   4,    6,     6,   6,  52,/* mcs5 */
++	 6, 0x21,  6,  15,  22,   5,    7,     7,   7,  59,/* mcs6 */
++	 7, 0x21,  7,  15,  22,   6,    8,     8,   8,  65,/* mcs7 */
++	 8, 0x23,  7,  12,  18,   7,    8,     8,   8,  72,/* mcs7+short gi */
++
++
++	 9, 0x00,  0, 40,  101,  9 ,  10,    10,   10,  1, /* cck-1M */
++	10, 0x00,  1, 40,  50,   9,   11,    11,   11,  2, /* cck-2M */
++	11, 0x10,  0, 30,  50,  10,    0,     0,   0,   6, /* OFDM 6M */	
++};
++
++UCHAR RateSwitchTableAdapt11N2SForMultiClients[] = {
++/* item no.   mcs   highPERThrd  upMcs3    upMcs1
++        mode   lowPERThrd  downMcs    upMcs2
++*/
++	22,   15,  0,  0,   0,   0,    0,   0,   0,   0,
++	 0, 0x21,  0, 30,  50,  21,    8,   8,   1,   7,/* mcs0 */
++	 1, 0x21,  1, 20,  50,   0,    9,   9,   2,  13,/* mcs1 */
++	 2, 0x21,  2, 20,  50,   1,    9,   9,   3,  20,/* mcs2 */
++	 3, 0x21,  3, 15,  50,   2,   10,  10,   4,  26,/* mcs3 */
++	 4, 0x21,  4, 15,  30,   3,   11,  11,   5,  39,/* mcs4 */
++
++	5, 0x21,  5, 15,  30,   4,   12,  12,   6,  52,/* mcs5 */
++	6, 0x21,  6,  15,  22,   5,   12,  12,   7,  59,/* mcs6 */
++#ifdef SUPPORT_SHORT_GI_RA
++	7, 0x21,  7,  12,  18,   6,   12,  12, sg07,  65,/* mcs7 */
++#else
++	7, 0x21,  7,  12,  18,   6,   12,  12,   7,  65,/* mcs7 */
++#endif
++
++	 8, 0x20,  8, 30,  50,   0,    9,   9,   2,  13,/* mcs8 */
++	 9, 0x20,  9, 20,  50,   8,   10,  10,   4,  26,/* mcs9 */
++	10, 0x20, 10, 20,  40,   9,   11,  11,   5,  39,/* mcs10 */
++	11, 0x20, 11, 15,  30,  10,   12,  12,   6,  52,/* mcs11 */
++	12, 0x20, 12, 15,  30,  11,   13,  13,  12,  78,/* mcs12 */
++	13, 0x20, 13,  8,  20,  12,   14,  14,  13, 104,/* mcs13 */
++#ifdef SUPPORT_SHORT_GI_RA
++	14, 0x20, 14,  8,  18,  13,   15,  15,sg14, 117,/* mcs14 */
++	15, 0x20, 15,  8,  25,  14, sg15,sg15,sg14, 130,/* mcs15 */
++	16, 0x22, 15,  8,  25,  15, sg15,sg15,sg15, 144,/* mcs15+shortGI */
++
++	17, 0x22, 14,  8,  14,  14, sg15,sg15,  15, 130, /* mcs14+shortGI */
++	18, 0x23,  7,  8,  14,   7,   12,  12,sg07,  72, /* mcs7+shortGI */
++#else
++	14, 0x20, 14,  8,  18,  13,   15,  15,  14, 117,/* mcs14 */
++	15, 0x20, 15,  8,  25,  14,   16,  16,  15, 130,/* mcs15 */
++	16, 0x22, 15,  8,  25,  15,   16,  16,  16, 144,/* mcs15+shortGI */
++  17,    0,  0,  0,   0,   0,   0,    0,   0,   0,
++  18,    0,  0,  0,   0,   0,   0,    0,   0,   0,
++#endif
++  19, 0x00,  0, 40,  101, 19 ,  19,    19,   20,  1, /* cck-1M */
++  20, 0x00,  1, 40,  50,  19,   20,    20,   21,  2, /* cck-2M */
++    21, 0x10,  0, 30,  50,  20,   8,     8,    0,   6, /* OFDM 6M */
++};
++#endif /*end MULTI_CLIENT_SUPPORT */
+ /*
+ 	Rate switch tables for New Rate Adaptation
+ 
+@@ -1165,6 +1231,10 @@ DBGPRINT(RT_DEBUG_INFO, ("%s(): txbw=%d, txmode=%d\n", __FUNCTION__, tx_bw, tx_m
+ }
+ #endif /* CONFIG_AP_SUPPORT */
+ 
++#ifdef MULTI_CLIENT_SUPPORT
++extern INT MidRateRssi;
++extern INT FarRateRssi;
++#endif
+ 
+ 
+ 
+@@ -1175,6 +1245,12 @@ VOID MlmeSelectTxRateTable(
+ 	IN UCHAR *pTableSize,
+ 	IN UCHAR *pInitTxRateIdx)
+ {
++#ifdef MULTI_CLIENT_SUPPORT
++	INT Rssi = -127;
++     
++	Rssi = RTMPAvgRssi(pAd, &pEntry->RssiSample);
++#endif
++     
+ 	do
+ 	{
+ #ifdef DOT11_VHT_AC
+@@ -1284,7 +1360,18 @@ VOID MlmeSelectTxRateTable(
+ 			if (ss == 1) {
+ #ifdef NEW_RATE_ADAPT_SUPPORT
+ 				if (pAd->rateAlg == RATE_ALG_GRP)
+-					*ppTable = RateSwitchTableAdapt11N1S;
++				{
++#ifdef MULTI_CLIENT_SUPPORT
++					if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++					{
++						*ppTable = RateSwitchTableAdapt11N1SForMultiClients;
++					}
++					else
++#endif
++					{
++						*ppTable = RateSwitchTableAdapt11N1S;
++					}
++				}
+ 				else
+ #endif
+ 					*ppTable = RateSwitchTable11N1SForABand;
+@@ -1297,8 +1384,18 @@ VOID MlmeSelectTxRateTable(
+ 			else if (ss == 2)
+ 			{
+ #ifdef NEW_RATE_ADAPT_SUPPORT
+-				if (pAd->rateAlg == RATE_ALG_GRP) {
+-					*ppTable = RateSwitchTableAdapt11N2S;
++				if (pAd->rateAlg == RATE_ALG_GRP) 
++				{
++#ifdef MULTI_CLIENT_SUPPORT
++					if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++					{
++						*ppTable = RateSwitchTableAdapt11N2SForMultiClients;
++					}
++					else
++#endif
++					{
++						*ppTable = RateSwitchTableAdapt11N2S;
++					}
+ 				} else
+ #endif /* NEW_RATE_ADAPT_SUPPORT */
+ 					*ppTable = RateSwitchTable11BGN2SForABand;
+@@ -1331,7 +1428,18 @@ VOID MlmeSelectTxRateTable(
+ #endif /* AGS_SUPPORT */
+ #ifdef NEW_RATE_ADAPT_SUPPORT
+ 			if (pAd->rateAlg == RATE_ALG_GRP)
+-				*ppTable = RateSwitchTableAdapt11N1S;
++			{
++#ifdef MULTI_CLIENT_SUPPORT
++				if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++				{
++					*ppTable = RateSwitchTableAdapt11N1SForMultiClients;
++ 				}
++				else
++#endif
++				{
++					*ppTable = RateSwitchTableAdapt11N1S;
++				}
++			}
+ 			else
+ #endif
+ 			if ((pAd->LatchRfRegs.Channel <= 14) && (pEntry->SupportRateMode & (SUPPORT_CCK_MODE)))
+@@ -1374,6 +1482,22 @@ VOID MlmeSelectTxRateTable(
+ #endif /* AGS_SUPPORT */
+ #ifdef NEW_RATE_ADAPT_SUPPORT
+ 				if (pAd->rateAlg == RATE_ALG_GRP) {
++#ifdef MULTI_CLIENT_SUPPORT
++    				if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++    				{
++#if defined(MT7603) || defined(MT7628)
++					if (IS_MT7603(pAd) || (IS_MT7628(pAd))) {
++						if ( pEntry->MmpsMode == MMPS_STATIC)
++							*ppTable = RateSwitchTableAdapt11N1SForMultiClients;
++						else
++							*ppTable = RateSwitchTableAdapt11N2SForMultiClients;
++					} else
++#endif /* defined(MT7603) || defined(MT7628) */
++    						*ppTable = RateSwitchTableAdapt11N2SForMultiClients;
++    				}
++    				else
++#endif /* end MULTI_CLIENT_SUPPORT */
++				{
+ #if defined(MT7603) || defined(MT7628)
+ 					if (IS_MT7603(pAd) || (IS_MT7628(pAd))) {
+ 						if ( pEntry->MmpsMode == MMPS_STATIC)
+@@ -1382,7 +1506,8 @@ VOID MlmeSelectTxRateTable(
+ 							*ppTable = RateSwitchTableAdapt11N2S;
+ 					} else
+ #endif /* defined(MT7603) || defined(MT7628) */
+-					*ppTable = RateSwitchTableAdapt11N2S;
++						*ppTable = RateSwitchTableAdapt11N2S;
++    					}
+ 				} else
+ #endif /* NEW_RATE_ADAPT_SUPPORT */
+ 			if ((pAd->LatchRfRegs.Channel <= 14) && (pEntry->SupportRateMode & (SUPPORT_CCK_MODE)))
+@@ -1406,9 +1531,31 @@ VOID MlmeSelectTxRateTable(
+ #if defined(MT7603) || defined(MT7628)
+ 					if (IS_MT7603(pAd) || (IS_MT7628(pAd))) {
+ 						if ( pEntry->MmpsMode == MMPS_STATIC )
+-							*ppTable = RateSwitchTableAdapt11N1S;
++						{
++#ifdef MULTI_CLIENT_SUPPORT
++							if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++					        	{
++								*ppTable = RateSwitchTableAdapt11N1SForMultiClients;
++							}
++							else
++#endif
++							{
++								*ppTable = RateSwitchTableAdapt11N1S;
++							}
++						}
+ 						else
+-							*ppTable = RateSwitchTableAdapt11N2S;
++						{
++#ifdef MULTI_CLIENT_SUPPORT
++							if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++					        	{
++								*ppTable = RateSwitchTableAdapt11N2SForMultiClients;
++							}
++						else
++#endif
++							{
++								*ppTable = RateSwitchTableAdapt11N2S;
++							}
++						}
+ 					} else
+ #endif /* defined(MT7603) || defined(MT7628) */
+ 						*ppTable = RateSwitchTableAdapt11N3S;
+@@ -1440,13 +1587,38 @@ VOID MlmeSelectTxRateTable(
+ 			{
+ #ifdef NEW_RATE_ADAPT_SUPPORT
+ 				if (pAd->rateAlg == RATE_ALG_GRP)
+-					*ppTable = RateSwitchTableAdapt11N1S;
++				{
++#ifdef MULTI_CLIENT_SUPPORT
++					if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++				        {
++						*ppTable = RateSwitchTableAdapt11N1SForMultiClients;
++					}
++					else
++#endif
++					{
++						*ppTable = RateSwitchTableAdapt11N1S;
++					}
++				}
+ 				else
+ #endif /* NEW_RATE_ADAPT_SUPPORT */
+ 				if (pAd->LatchRfRegs.Channel <= 14)
+-					*ppTable = RateSwitchTable11N1S;
++				{
++#ifdef MULTI_CLIENT_SUPPORT
++					if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++				        {
++						*ppTable = RateSwitchTableAdapt11N1SForMultiClients;
++					}
+ 				else
+-					*ppTable = RateSwitchTable11N1SForABand;
++#endif
++					{
++						*ppTable = RateSwitchTableAdapt11N1S;
++					}
++				}
++				else
++					{
++						//printk("--->%s,%d\n", __func__, __LINE__);
++						*ppTable = RateSwitchTable11N1SForABand;
++				}
+ 			}
+ 			break;
+ 		}
+@@ -1464,11 +1636,31 @@ VOID MlmeSelectTxRateTable(
+ 			{
+ #ifdef NEW_RATE_ADAPT_SUPPORT
+ 				if (pAd->rateAlg == RATE_ALG_GRP) {
+-					*ppTable = RateSwitchTableAdapt11N2S;
++#ifdef MULTI_CLIENT_SUPPORT
++					if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++					{
++						*ppTable = RateSwitchTableAdapt11N2SForMultiClients;
++ 					}
++					else
++#endif
++					{
++						*ppTable = RateSwitchTableAdapt11N2S;
++					}
+ 				} else
+ #endif /* NEW_RATE_ADAPT_SUPPORT */
+ 				if (pAd->LatchRfRegs.Channel <= 14)
+-					*ppTable = RateSwitchTable11N2S;
++				{
++#ifdef MULTI_CLIENT_SUPPORT
++					if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++				        {
++						*ppTable = RateSwitchTableAdapt11N2SForMultiClients;
++					}
++					else
++#endif
++					{
++						*ppTable = RateSwitchTableAdapt11N2S;
++					}
++				}
+ 				else
+ 					*ppTable = RateSwitchTable11N2SForABand;			
+ 			}
+@@ -1507,7 +1699,18 @@ VOID MlmeSelectTxRateTable(
+ 					{
+ #ifdef NEW_RATE_ADAPT_SUPPORT
+ 					if (pAd->rateAlg == RATE_ALG_GRP)
++					{
++#ifdef MULTI_CLIENT_SUPPORT
++						if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++					        {
++							*ppTable = RateSwitchTableAdapt11N1SForMultiClients;
++						}
++						else
++#endif
++						{
+ 						*ppTable = RateSwitchTableAdapt11N1S;
++						}
++					}
+ 					else
+ #endif /* NEW_RATE_ADAPT_SUPPORT */
+ 						if ((pAd->LatchRfRegs.Channel <= 14) && (pEntry->SupportRateMode & (SUPPORT_CCK_MODE)))
+@@ -1519,7 +1722,18 @@ VOID MlmeSelectTxRateTable(
+ 					{
+ #ifdef NEW_RATE_ADAPT_SUPPORT
+ 						if (pAd->rateAlg == RATE_ALG_GRP)
+-							*ppTable = RateSwitchTableAdapt11N1S;
++						{
++#ifdef MULTI_CLIENT_SUPPORT
++							if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++							{
++								*ppTable = RateSwitchTableAdapt11N1SForMultiClients;
++							}
++							else
++#endif
++							{
++								*ppTable = RateSwitchTableAdapt11N1S;
++							}
++					}
+ 						else
+ #endif /* NEW_RATE_ADAPT_SUPPORT */
+ 						if (pAd->LatchRfRegs.Channel <= 14)
+@@ -1535,7 +1749,18 @@ VOID MlmeSelectTxRateTable(
+ 					{
+ #ifdef NEW_RATE_ADAPT_SUPPORT
+ 						if (pAd->rateAlg == RATE_ALG_GRP)
+-							*ppTable = RateSwitchTableAdapt11N2S;
++						{
++#ifdef MULTI_CLIENT_SUPPORT
++							if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++							{
++								*ppTable = RateSwitchTableAdapt11N2SForMultiClients;
++							}
++							else
++#endif
++							{
++								*ppTable = RateSwitchTableAdapt11N2S;
++							}
++						}
+ 						else
+ #endif /* NEW_RATE_ADAPT_SUPPORT */
+ 						if ((pAd->LatchRfRegs.Channel <= 14) && (pEntry->SupportRateMode & (SUPPORT_CCK_MODE)))
+@@ -1547,7 +1772,18 @@ VOID MlmeSelectTxRateTable(
+ 					{
+ #ifdef NEW_RATE_ADAPT_SUPPORT
+ 						if (pAd->rateAlg == RATE_ALG_GRP)
+-							*ppTable = RateSwitchTableAdapt11N2S;
++						{
++#ifdef MULTI_CLIENT_SUPPORT
++							if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++							{
++								*ppTable = RateSwitchTableAdapt11N2SForMultiClients;
++							}
++							else
++#endif
++							{
++								*ppTable = RateSwitchTableAdapt11N2S;
++							}
++						}
+ 						else
+ #endif /* NEW_RATE_ADAPT_SUPPORT */
+ 						if (pAd->LatchRfRegs.Channel <= 14)
+@@ -1629,9 +1865,20 @@ VOID MlmeSelectTxRateTable(
+ 				if (pAd->rateAlg == RATE_ALG_GRP)
+ 				{
+ 					if (pEntry->HTCapability.MCSSet[2] == 0) {
+-						*ppTable = RateSwitchTableAdapt11N2S;
++#ifdef MULTI_CLIENT_SUPPORT
++						if (is_multiclient_mode_on(pAd) && (Rssi > -65))
++						{
++							*ppTable = RateSwitchTableAdapt11N2SForMultiClients;
++						}
++						else
++#endif
++						{
++							*ppTable = RateSwitchTableAdapt11N2S;
++						}
+ 					} else
++					{
+ 						*ppTable = RateSwitchTableAdapt11N3S;
++					}
+ 				}
+ 				else
+ #endif /* NEW_RATE_ADAPT_SUPPORT */
+@@ -1662,6 +1909,22 @@ VOID MlmeSelectTxRateTable(
+ 
+ 	} while(FALSE);
+ 
++#ifdef MULTI_CLIENT_SUPPORT
++		Rssi = RTMPAvgRssi(pAd, &pEntry->RssiSample);
++ 		if (is_multiclient_mode_on(pAd) > 0)
++		{
++			if (Rssi < MidRateRssi && Rssi >= FarRateRssi)
++			{
++				*ppTable = RateSwitchTableAdapt11N1SForMultiClients;		
++			}
++			else if(Rssi < FarRateRssi)
++			{
++				*ppTable = RateSwitchTableAdapt11BG;
++			}
++		}
++#endif
++
++
+ 	*pTableSize = RATE_TABLE_SIZE(*ppTable);
+ 	*pInitTxRateIdx = RATE_TABLE_INIT_INDEX(*ppTable);
+ 
+@@ -2020,7 +2283,7 @@ VOID MlmeCheckRDG(
+ 
+ 	// TODO: shiang-7603
+ 	if (pAd->chipCap.hif_type == HIF_MT) {
+-		DBGPRINT(RT_DEBUG_TRACE, ("%s(%d): Not support for HIF_MT yet!\n",
++		DBGPRINT(RT_DEBUG_OFF, ("%s(%d): Not support for HIF_MT yet!\n",
+ 							__FUNCTION__, __LINE__));
+ 		return;
+ 	}
+@@ -2175,7 +2438,11 @@ VOID MlmeNewTxRate(RTMP_ADAPTER *pAd, MAC_TABLE_ENTRY *pEntry)
+ 	{
+ 		if ((pEntry->AuthMode == Ndis802_11AuthModeWAICERT) || (pEntry->AuthMode == Ndis802_11AuthModeWAIPSK))
+ 		{
++#ifdef MULTI_CLIENT_SUPPORT
++			if ((pTable == RateSwitchTableAdapt11N2S || (pTable == RateSwitchTableAdapt11N2SForMultiClients))
++#else
+ 			if (pTable == RateSwitchTableAdapt11N2S)
++#endif
+ 			{
+ 				if ((pEntry->CurrTxRateIndex >= 14) && (pEntry->CurrTxRateIndex <= 16))
+ 				{

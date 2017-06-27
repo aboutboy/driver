@@ -1,0 +1,2436 @@
+diff --git a/mt76x2/ap/ap_assoc.c b/mt76x2/ap/ap_assoc.c
+index 8998ecc..7e80760 100644
+--- a/mt76x2/ap/ap_assoc.c
++++ b/mt76x2/ap/ap_assoc.c
+@@ -825,6 +825,13 @@ VOID ap_cmm_peer_assoc_req_action(
+ 	UINT64 tmp_2;
+ #endif /*RT_BIG_ENDIAN*/
+ 
++#ifdef 	TPSK_SUPPORT
++	unsigned long tpmkIrqFlags;
++	unsigned long idxMacMapirqFlags;
++	INT	TpmkIdx = -1;
++	INT	StaIdxmap = -1;
++#endif
++
+ 	/* allocate memory */
+ 	os_alloc_mem(NULL, (UCHAR **)&ie_list, sizeof(IE_LISTS));
+ 	if (ie_list == NULL) {
+@@ -1856,6 +1863,59 @@ SendAssocResponse:
+         }
+ 		else
+ #endif	/* RT_CFG80211_SUPPORT */
++
++		/* Add by Dragon, 20150414 */
++#ifdef TPSK_SUPPORT
++
++
++		if ((pEntry->AuthMode == Ndis802_11AuthModeWPAPSK) || 
++			(pEntry->AuthMode == Ndis802_11AuthModeWPA2PSK) ||
++			(pEntry->AuthMode == Ndis802_11AuthModeWPA1PSKWPA2PSK))
++		{
++			/* 
++			 *Add by Dragon, search STA Idex map uesd last time, 20150414 
++			 */
++			RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.TPMKTableLock), tpmkIrqFlags);
++			RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxTableLock), idxMacMapirqFlags);
++			if ((StaIdxmap = RTMPSearchStaPMKIdxEntry(pAd, pEntry->apidx, pEntry->Addr)) != -1) // staidxmap yes, means connect before
++			{
++				if (((TpmkIdx = RTMPSearchTPMKEntryMatchBroadcastMac(pAd, pEntry->apidx, pEntry->Addr, 
++					(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxInfo[StaIdxmap].StaPMKIdx+ 1))) != -1))
++				{
++					pEntry->TPMK_EntryIdx = TpmkIdx;
++					DBGPRINT(RT_DEBUG_TRACE, ("---------->ASSOC - STA Idex map1,2.TPMK matched and start key cache algorithm\n"));
++				}
++				else
++				{
++					pEntry->TPMK_EntryIdx = ENTRY_NOT_FOUND;
++					DBGPRINT(RT_DEBUG_TRACE, ("---------->ASSOC - STA Idex map1,2.TPMK not found \n"));
++				}
++			}
++			else /* no map , search TPMK table*/
++			{
++				/* search mac match */
++				if (((TpmkIdx = RTMPSearchTPMKEntryMatchStaMac(pAd, pEntry->apidx, pEntry->Addr)) != -1))
++				{
++					pEntry->TPMK_EntryIdx = TpmkIdx;
++					DBGPRINT(RT_DEBUG_TRACE, ("---------->ASSOC - STA Idex NO map1, 2.TPMK matched and start key cache algorithm\n"));
++				}
++				else if (((TpmkIdx = RTMPSearchTPMKEntryMatchBroadcastMac(pAd, pEntry->apidx, pEntry->Addr, 0)) != -1))
++				{
++					pEntry->TPMK_EntryIdx = TpmkIdx;
++					DBGPRINT(RT_DEBUG_TRACE, ("---------->ASSOC - STA Idex NO map1,2.TPMK matched and start key cache algorithm\n"));
++				}
++				else
++				{
++					pEntry->TPMK_EntryIdx = ENTRY_NOT_FOUND;
++					DBGPRINT(RT_DEBUG_TRACE, ("---------->ASSOC - STA Idex NO map1,2.TPMK not found \n"));
++				}
++			}
++			RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxTableLock), idxMacMapirqFlags);
++			RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.TPMKTableLock), tpmkIrqFlags);
++			
++		}
++#endif
++
+ 		/* enqueue a EAPOL_START message to trigger EAP state machine doing the authentication */
+ 	    if ((pEntry->AuthMode == Ndis802_11AuthModeWPAPSK) || 
+ 			(pEntry->AuthMode == Ndis802_11AuthModeWPA2PSK))
+diff --git a/mt76x2/ap/ap_cfg.c b/mt76x2/ap/ap_cfg.c
+index bb1f0c0..b891b8f 100644
+--- a/mt76x2/ap/ap_cfg.c
++++ b/mt76x2/ap/ap_cfg.c
+@@ -1916,6 +1916,330 @@ VOID RTMPAPGetAssoMacTable(
+ }
+ 
+ 
++#ifdef TPSK_SUPPORT
++VOID RTMPIoctlSetTPMKTable(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq)
++{
++    INT i, j;
++    UCHAR *buf = NULL;
++    AP_BSSID_TPMK_INFO *pFrom;
++    INT retval;
++    unsigned long irqFlags;
++    unsigned char zero0[6]={0x00,0x00,0x00,0x00,0x00,0x00};
++printk("RTMPIoctlSetTPMKTable\n");
++
++    /* allocate memory */
++    os_alloc_mem(NULL, (UCHAR **)&buf, sizeof(AP_BSSID_TPMK_INFO) * MAX_TPMK_COUNT);
++    if (buf == NULL)
++    {
++        DBGPRINT(RT_DEBUG_ERROR, ("%s: Allocate memory fail!!!\n", __FUNCTION__));
++        return;
++    }
++
++    wrq->u.data.length = sizeof(AP_BSSID_TPMK_INFO) * MAX_TPMK_COUNT;
++    if (copy_from_user(buf, wrq->u.data.pointer, wrq->u.data.length))
++    {
++        DBGPRINT(RT_DEBUG_TRACE, ("%s: copy_to_user() fail\n", __FUNCTION__));
++    }
++
++    RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[0].TPMKTable.TPMKTableLock), irqFlags);
++    //NdisZeroMemory(&pAd->ApCfg.MBSSID[0].TPMKTable, sizeof(AP_BSSID_TPMK_INFO) * MAX_TPMK_COUNT);
++    pFrom = (PAP_BSSID_TPMK_INFO)buf;
++    for (i=0; i < MAX_TPMK_COUNT; i++)
++    {
++        if (!MAC_ADDR_EQUAL(pFrom->MAC, zero0))
++        {
++            retval = RT_CfgSetWPAPSKKey(pAd, &(pFrom->PassWd[0]), 
++                                                strlen(pFrom->PassWd), (PUCHAR)pAd->ApCfg.MBSSID[0].Ssid, 
++                                                pAd->ApCfg.MBSSID[0].SsidLen,
++                                                pFrom->PMK);
++            if (retval == FALSE)
++                DBGPRINT(RT_DEBUG_ERROR, ("%s: RT_CfgSetWPAPSKKey fail!!!\n", __FUNCTION__));
++
++	    for(j = BSS0; j < pAd->ApCfg.BssidNum; j++)
++    	    {
++                pAd->ApCfg.MBSSID[j].TPMKEntryPeriod = (pFrom->duration)*OS_HZ;
++                DBGPRINT(RT_DEBUG_OFF, ("RTMPIoctlSet MBSSID[%d] TPMKEntryPeriod:%d\n",
++                                         j,pAd->ApCfg.MBSSID[j].TPMKEntryPeriod));
++
++				//pAd->ApCfg.MBSSID[j].duration = pFrom->duration;
++				
++				printk("\n pFrom->duration = %ld.\n", pFrom->duration);
++    	    }
++
++			printk("mac:%s passwd %s pmk:%s\n",pFrom->MAC,pFrom->PassWd,pFrom->PMK);
++            RTMPAddTPMKEntry(pAd, 0, pFrom->MAC, pFrom->PMK, pFrom->PassWd);
++        }
++        
++        pFrom++;
++    }
++    RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[0].TPMKTable.TPMKTableLock), irqFlags);
++
++    /*  kfree(msg);*/
++    os_free_mem(NULL, buf);
++}
++
++VOID RTMPIoctlGetTPMKTable(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq)
++{
++    INT i;
++    NDIS_AP_802_11_TPMK *pTPMKTable = NULL;
++    AP_BSSID_TPMK_INFO *pDst;
++    AP_BSSID_TPMK_INFO *pFrom;
++    unsigned long irqFlags;
++    ULONG Now;
++    unsigned char zero1[6]={0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
++
++    /* allocate memory */
++    os_alloc_mem(NULL, (UCHAR **)&pTPMKTable, sizeof(NDIS_AP_802_11_TPMK));
++    if (pTPMKTable == NULL)
++    {
++        DBGPRINT(RT_DEBUG_ERROR, ("%s: Allocate memory fail!!!\n", __FUNCTION__));
++        return;
++    }
++
++    NdisZeroMemory(pTPMKTable, sizeof(NDIS_AP_802_11_TPMK));
++
++    
++    RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[0].TPMKTable.TPMKTableLock), irqFlags);
++    for (i=0; i < MAX_TPMK_COUNT; i++)
++    {
++        pFrom = &(pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[i]);
++
++        pDst = &pTPMKTable->BSSIDTPMKInfo[i];
++
++        COPY_MAC_ADDR(pDst->MAC, pFrom->MAC);
++        NdisCopyMemory(pDst->PassWd, pFrom->PassWd, PSK_PAWORD_LEN);
++        pDst->Valid = pFrom->Valid;
++        NdisGetSystemUpTime(&Now);
++	/*    
++    if (NdisEqualMemory(pFrom->MAC, zero1, 6))
++        {
++                pFrom->duration = pAd->ApCfg.MBSSID[0].TPMKEntryPeriod - (Now - pFrom->RefreshTime);
++        }
++        else
++        {
++            pFrom->duration = 0;
++        } */ //shiner add
++        pDst->duration = pFrom->duration;
++	//printk("get  pFrom->duration= %ld.\n", pFrom->duration);
++	pDst->Validtime = pFrom->Validtime;//shiner add
++    }
++    RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[0].TPMKTable.TPMKTableLock), irqFlags);
++
++    wrq->u.data.length = sizeof(AP_BSSID_TPMK_INFO) * MAX_TPMK_COUNT;
++    if (copy_to_user(wrq->u.data.pointer, (char *)pTPMKTable, wrq->u.data.length))
++    {
++        DBGPRINT(RT_DEBUG_TRACE, ("%s: copy_to_user() fail\n", __FUNCTION__));
++    }
++
++    //DBGPRINT(RT_DEBUG_TRACE, ("%s", pTPMKTable));
++/*  kfree(msg);*/
++    os_free_mem(NULL, pTPMKTable);
++}
++
++VOID RTMPIoctlDelTPMKEntry(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq)
++{
++    AP_BSSID_TPMK_INFO *pEntry = NULL;
++    INT idx = -1;
++    unsigned long irqFlags;
++
++    /* allocate memory */
++    os_alloc_mem(NULL, (UCHAR **)&pEntry, sizeof(AP_BSSID_TPMK_INFO));
++    if (pEntry == NULL)
++    {
++        DBGPRINT(RT_DEBUG_ERROR, ("%s: Allocate memory fail!!!\n", __FUNCTION__));
++        return;
++    }
++
++    NdisZeroMemory(pEntry, sizeof(AP_BSSID_TPMK_INFO));
++
++    wrq->u.data.length = sizeof(AP_BSSID_TPMK_INFO);
++    if (copy_from_user(pEntry, wrq->u.data.pointer, wrq->u.data.length))
++    {
++        DBGPRINT(RT_DEBUG_TRACE, ("%s: copy_to_user() fail\n", __FUNCTION__));
++    }
++
++    DBGPRINT(RT_DEBUG_OFF, ("RTMPIoctlDelTPMKEntry->password:%s,mac is:%02x:%02x:%02x:%02x:%02x:%02x\n", 
++            pEntry->PassWd, 
++            pEntry->MAC[0],
++            pEntry->MAC[1],
++            pEntry->MAC[2],
++            pEntry->MAC[3],
++            pEntry->MAC[4],
++            pEntry->MAC[5]));
++
++    RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[0].TPMKTable.TPMKTableLock), irqFlags);
++    
++    if ((idx = RTMPSearchTPMKEntryMatchPwd(pAd, 0, pEntry->PassWd)) != -1)
++    {
++        DBGPRINT(RT_DEBUG_TRACE, ("--->find entry PassWd OK\n"));
++        if (MAC_ADDR_EQUAL(pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[idx].MAC, pEntry->MAC))
++        {
++            DBGPRINT(RT_DEBUG_TRACE, ("--->find the del entry by PassWd\n"));
++            pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[idx].Valid = FALSE;
++            NdisZeroMemory(pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[idx].MAC, MAC_LEN_6);
++            NdisZeroMemory(pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[idx].PassWd, PSK_PAWORD_LEN);
++            NdisZeroMemory(pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[idx].PMK, PMK_PWORD_LEN);
++        }
++        else if ((idx = RTMPSearchTPMKEntryMatchStaMac(pAd, 0, pEntry->MAC)) != -1)
++        {
++            DBGPRINT(RT_DEBUG_TRACE, ("--->find entry MAC ok\n"));
++            if (NdisEqualMemory(pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[idx].PassWd, pEntry->PassWd, PSK_PAWORD_LEN))
++            {
++                DBGPRINT(RT_DEBUG_TRACE, ("--->find the del entry by mac"));
++                pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[idx].Valid = FALSE;
++                NdisZeroMemory(pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[idx].MAC, MAC_LEN_6);
++                NdisZeroMemory(pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[idx].PassWd, PSK_PAWORD_LEN);
++                NdisZeroMemory(pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[idx].PMK, PMK_PWORD_LEN);
++            }
++        }
++        else
++        {
++            DBGPRINT(RT_DEBUG_OFF, ("%s: not found the pmk entry\n", __FUNCTION__));
++        }
++    }
++    else
++    {
++        DBGPRINT(RT_DEBUG_OFF, ("%s: password entry not found entry\n", __FUNCTION__));
++    }
++    RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[0].TPMKTable.TPMKTableLock), irqFlags);
++
++    /*  kfree(msg);*/
++    os_free_mem(NULL, pEntry);
++}
++
++VOID RTMPIoctlDelTPMKTable(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq)
++{
++    INT i;
++    unsigned long irqFlags;
++
++    RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[0].TPMKTable.TPMKTableLock), irqFlags);
++    for (i=0; i < MAX_TPMK_COUNT; i++)
++    {
++        pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[i].Valid = FALSE;
++        NdisZeroMemory(pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[i].MAC, MAC_LEN_6);
++        NdisZeroMemory(pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[i].PassWd, PSK_PAWORD_LEN);
++        NdisZeroMemory(pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[i].PMK, PMK_PWORD_LEN);
++    }
++    RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[0].TPMKTable.TPMKTableLock), irqFlags);
++}
++
++VOID RTMPIoctlShowTPMKTable(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq)
++{
++    INT i;
++    unsigned long irqFlags;
++
++    RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[0].TPMKTable.TPMKTableLock), irqFlags);
++    for (i=0; i < MAX_TPMK_COUNT; i++)
++    {
++        if(pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[i].Valid)
++        {
++            DBGPRINT(RT_DEBUG_OFF, ("Idx:%d, mac is:%02x:%02x:%02x:%02x:%02x:%02x, passwd:%s\n", i, 
++                                    pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[i].MAC[0],
++                                    pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[i].MAC[1], 
++                                    pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[i].MAC[2], 
++           	                        pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[i].MAC[3],
++           	                        pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[i].MAC[4], 
++           	                        pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[i].MAC[5],
++           	                        pAd->ApCfg.MBSSID[0].TPMKTable.BSSIDTPMKInfo[i].PassWd)); 	
++        }
++    }
++    RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[0].TPMKTable.TPMKTableLock), irqFlags);
++}
++#endif
++
++#ifdef VEDOR_IE_CONTROL_SUPPORT
++VOID RTMPIoctlCuteromIESet(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq)
++{
++	int i = 0;
++    NdisZeroMemory(pAd->CustomizationIE, CUSTOMIZATION_IE_MAX_LEN);
++
++    wrq->u.data.length = CUSTOMIZATION_IE_MAX_LEN;
++    if (copy_from_user(pAd->CustomizationIE, wrq->u.data.pointer, wrq->u.data.length))
++    {
++        DBGPRINT(RT_DEBUG_OFF, ("%s: copy_to_user() fail\n", __FUNCTION__));
++    }
++	printk("len:%u\n",wrq->u.data.length);
++	
++	while(i < wrq->u.data.length){
++		printk("%x ",wrq->u.data.pointer[i]);
++		i++;
++		}
++	
++    printk("RTMPIoctlCuteromIESet->IE:%d, IE len is:%d\n", 
++            pAd->CustomizationIE[0],
++            pAd->CustomizationIE[1]);
++}
++
++VOID RTMPIoctlCuteromIEClear(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq)
++{
++    NdisZeroMemory(pAd->CustomizationIE, CUSTOMIZATION_IE_MAX_LEN);
++    DBGPRINT(RT_DEBUG_TRACE, ("RTMPIoctlCuteromIEClear->IE\n"));
++}
++#endif
++
++#ifdef VEDOR_IE_FILTER_SUPPORT
++VOID RTMPIoctlVedorIEFilter(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq)
++{
++
++    NdisZeroMemory(pAd->VedorIEOUI, VEDOR_IE_OUI_LEN);
++
++    wrq->u.data.length = VEDOR_IE_OUI_LEN;
++    if (copy_from_user(pAd->VedorIEOUI, wrq->u.data.pointer, wrq->u.data.length))
++    {
++        DBGPRINT(RT_DEBUG_OFF, ("%s: copy_to_user() fail\n", __FUNCTION__));
++    }
++
++    DBGPRINT(RT_DEBUG_OFF, ("RTMPIoctlVedorIEFilter->IE:%d:%d:%d\n", 
++            pAd->VedorIEOUI[0],
++            pAd->VedorIEOUI[1],
++            pAd->VedorIEOUI[2]));
++}
++
++VOID RTMPIoctlVdoerIEClear(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq)
++{
++    NdisZeroMemory(pAd->VedorIEOUI, VEDOR_IE_OUI_LEN);
++    DBGPRINT(RT_DEBUG_OFF, ("RTMPIoctlVdoerIEClear->IE\n"));
++}
++#endif
++
++#ifdef SNIFFER_STA_PROBE_SUPPORT
++VOID RTMPIoctlSnifferSTAProbeEnable(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq)
++{
++    pAd->SnifferProbeEnable = TRUE;
++    DBGPRINT(RT_DEBUG_OFF, ("SnifferProbeEnable:%d\n", pAd->SnifferProbeEnable));
++}
++
++VOID RTMPIoctlSnifferSTAProbeDisable(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq)
++{
++    pAd->SnifferProbeEnable = FALSE;
++    DBGPRINT(RT_DEBUG_OFF, ("SnifferProbeEnable:%d\n", pAd->SnifferProbeEnable));
++}
++#endif
++
++
++
+ #if defined(INF_AR9) || defined(BB_SOC)
+ #if defined(AR9_MAPI_SUPPORT) || defined(BB_SOC)
+ INT RTMPAPPrivIoctlAR9Show(
+@@ -9776,6 +10100,24 @@ VOID RTMPIoctlAddPMKIDCache(
+     DBGPRINT(RT_DEBUG_TRACE, ("<== RTMPIoctlAddPMKIDCache\n"));
+ }
+ 
++/* 
++    ==========================================================================
++    Description:
++		TPMK Table add entry
++	Arguments:
++		pAd 	Pointer to our adapter
++		wrq 	Pointer to the ioctl argument
++	==========================================================================
++*/
++		/* Add by Dragon, 20150420 */
++#ifdef TPSK_SUPPORT
++VOID RTMPIoctlAddTPMKEntry(
++	IN	PRTMP_ADAPTER	pAd, 
++	IN	RTMP_IOCTL_INPUT_STRUCT *wrq)
++{
++
++}
++#endif
+ 
+ /* 
+     ==========================================================================
+@@ -15442,7 +15784,56 @@ INT RTMP_AP_IoctlHandle(
+ 		case CMD_RTPRIV_IOCTL_GET_MAC_TABLE:
+ 			RTMPIoctlGetMacTable(pAd,wrq);
+ 		    break;
++ 
++#ifdef TPSK_SUPPORT 
++        case CMD_RTPRIV_IOCTL_SET_TPMK_TABLE:
++            RTMPIoctlSetTPMKTable(pAd,wrq);
++		    break;
++        case CMD_RTPRIV_IOCTL_GET_TPMK_TABLE:
++            RTMPIoctlGetTPMKTable(pAd,wrq);
++		    break;
++        case CMD_RTPRIV_IOCTL_DEL_TPMK_ENTRY:
++            RTMPIoctlDelTPMKEntry(pAd,wrq);
++		    break;
++        case CMD_RTPRIV_IOCTL_DEL_TPMK_TABLE:
++            RTMPIoctlDelTPMKTable(pAd,wrq);
++		    break;
++        case CMD_RTPRIV_IOCTL_SHOW_TPMK_TABLE:
++            RTMPIoctlShowTPMKTable(pAd,wrq);
++            break;
++#endif
++
++#ifdef VEDOR_IE_CONTROL_SUPPORT
++        case CMD_RTPRIV_IOCTL_CUSTEROM_IE_SET:
++            DBGPRINT(RT_DEBUG_TRACE,("---->driver CMD_RTPRIV_IOCTL_CUSTEROM_IE_SET\n"));
++            RTMPIoctlCuteromIESet(pAd,wrq);
++		    break;
++        case CMD_RTPRIV_IOCTL_CUSTEROM_IE_CLEAR:
++            DBGPRINT(RT_DEBUG_TRACE,("---->driver CMD_RTPRIV_IOCTL_CUSTEROM_IE_CLEAR\n"));
++            RTMPIoctlCuteromIEClear(pAd,wrq);
++		    break;
++#endif
+ 
++#ifdef VEDOR_IE_FILTER_SUPPORT
++        case CMD_RTPRIV_IOCTL_VDOER_IE_FILTER_SET:
++            RTMPIoctlVedorIEFilter(pAd,wrq);
++		    break;
++
++        case CMD_RTPRIV_IOCTL_VDOER_IE_FILTER_CLEAR:
++            RTMPIoctlVdoerIEClear(pAd,wrq);
++		    break;
++#endif
++
++#ifdef SNIFFER_STA_PROBE_SUPPORT
++        case CMD_RTPRIV_IOCTL_SNIFFER_STA_PROBE_ENABLE:
++            RTMPIoctlSnifferSTAProbeEnable(pAd,wrq);
++            break;
++
++        case CMD_RTPRIV_IOCTL_SNIFFER_STA_PROBE_DISABLE:
++            RTMPIoctlSnifferSTAProbeDisable(pAd,wrq);
++            break;
++#endif			
++			
+ #if defined (AP_SCAN_SUPPORT) || defined (CONFIG_STA_SUPPORT)
+ 		case CMD_RTPRIV_IOCTL_AP_SIOCSIWSCAN:
+ 		{
+diff --git a/mt76x2/ap/ap_connect.c b/mt76x2/ap/ap_connect.c
+index 1b815aa..e152082 100644
+--- a/mt76x2/ap/ap_connect.c
++++ b/mt76x2/ap/ap_connect.c
+@@ -1194,6 +1194,16 @@ VOID APUpdateBeaconFrame(RTMP_ADAPTER *pAd, INT apidx)
+ 		FrameLen += TmpLen;
+ 	}	
+ 	
++#ifdef VEDOR_IE_CONTROL_SUPPORT
++    if (pAd->CustomizationIE[0] == IE_VENDOR_SPECIFIC && pAd->CustomizationIE[1] != 0)
++    {
++        ULONG CusetomzationIELen = 0;
++        MakeOutgoingFrame(pBeaconFrame+FrameLen,       &CusetomzationIELen,
++                          pAd->CustomizationIE[1] + 2,   pAd->CustomizationIE,
++                          END_OF_ARGS);
++        FrameLen += CusetomzationIELen;
++    }
++#endif
+ 
+ 	/* step 6. Since FrameLen may change, update TXWI. */
+ #ifdef A_BAND_SUPPORT
+diff --git a/mt76x2/ap/ap_mlme.c b/mt76x2/ap/ap_mlme.c
+index 40e4da4..aa7e8be 100644
+--- a/mt76x2/ap/ap_mlme.c
++++ b/mt76x2/ap/ap_mlme.c
+@@ -224,6 +224,13 @@ VOID APMlmePeriodicExec(
+ 
+ 		RTMPMaintainPMKIDCache(pAd);
+ 
++		/* Add by Dragon, 20150414 */
++#ifdef TPSK_SUPPORT
++		RTMPMaintainTPMKEntry(pAd);
++		RTMPMaintainStaPMKIdxEntry(pAd);
++#endif			
++		
++
+ #ifdef WDS_SUPPORT
+ 		WdsTableMaintenance(pAd);
+ #endif /* WDS_SUPPORT */
+diff --git a/mt76x2/ap/ap_sync.c b/mt76x2/ap/ap_sync.c
+index d739026..773f996 100644
+--- a/mt76x2/ap/ap_sync.c
++++ b/mt76x2/ap/ap_sync.c
+@@ -61,6 +61,25 @@ VOID APPeerProbeReqAction(
+ #endif /* BAND_STEERING */
+ 	UCHAR Addr2[MAC_ADDR_LEN];
+ 	PFRAME_802_11 pFrame = (PFRAME_802_11)Elem->Msg;
++#ifdef VEDOR_IE_FILTER_SUPPORT
++	UCHAR ZeroOUI[VEDOR_IE_OUI_LEN] = {0,0,0};
++	UCHAR IePkt[CUSTOMIZATION_IE_MAX_LEN] = {0};
++#endif
++
++#ifdef SNIFFER_STA_PROBE_SUPPORT
++	CHAR  RealRssi = -127;
++	CHAR  StaRssi;
++	PFRAME_802_11 pFr = (PFRAME_802_11)Elem->Msg;
++	extern int mac2Str (unsigned char *mac, unsigned char *str, int bColon);
++	UCHAR TmpStrMac[MAC_STR_LEN] = {0};
++	extern int pb_nl_send_msg(void *msg, int msg_size);
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT 
++	NDIS_AP_802_11_NETLINK_MSG_INFO StaNlMsgInfo;   
++	NDIS_AP_802_11_STA_IE_MSG StaIeInfo;
++	extern int pb_nl_send_msg(void *msg, int msg_size);
++#endif
++#endif	
++	
+ #ifdef WSC_AP_SUPPORT
+ 	UCHAR Addr3[MAC_ADDR_LEN];
+ 	COPY_MAC_ADDR(Addr3, pFrame->Hdr.Addr3);
+@@ -76,6 +95,78 @@ VOID APPeerProbeReqAction(
+ 	if (! PeerProbeReqSanity(pAd, Elem->Msg, Elem->MsgLen, &ProbeReqParam))
+ 		return;
+ 
++ 
++#ifdef SNIFFER_STA_PROBE_SUPPORT
++    if (pAd->SnifferProbeEnable)
++    {
++  //      RealRssi = RTMPMaxRssi(pAd, ConvertToRssi(pAd, Elem->Rssi0, RSSI_0), ConvertToRssi(pAd, Elem->Rssi1, RSSI_1), ConvertToRssi(pAd, Elem->Rssi2, RSSI_2));
++		RealRssi = RTMPMaxRssi(pAd, ConvertToRssi(pAd, &Elem->rssi_info, RSSI_0),
++								ConvertToRssi(pAd, &Elem->rssi_info, RSSI_1),
++								ConvertToRssi(pAd, &Elem->rssi_info, RSSI_2));
++  //if ((RealRssi + pAd->BbpRssiToDbmDelta) > RealRssi)
++                    StaRssi = RealRssi + pAd->BbpRssiToDbmDelta;
++        DBGPRINT(RT_DEBUG_TRACE, ("---------->StaRssi:%d, RealRssi:%d\n", (INT)StaRssi,(INT)RealRssi));
++        NdisZeroMemory(&(pAd->ApCfg.MBSSID[0].StaMsgInfo), sizeof(NDIS_AP_802_11_STA_DEV_MSG));
++        pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgType = MSG_TYPE_PROBE;
++        pAd->ApCfg.MBSSID[0].StaMsgInfo.AccessType = ACCESS_TYPE_WIRELESS;
++        
++        NdisZeroMemory(TmpStrMac, MAC_STR_LEN);
++        mac2Str(pFr->Hdr.Addr2, TmpStrMac, 1);
++        NdisCopyMemory(pAd->ApCfg.MBSSID[0].StaMsgInfo.ClientMac, TmpStrMac, MAC_STR_LEN);
++        pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgRssi = StaRssi;
++        pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgBandType = BAND_TYPE_2_4_G;
++        if (pFr->Octet[0] == IE_SSID && pFr->Octet[1] > 0 && pFr->Octet[1] <= MAX_LEN_OF_SSID)
++        {
++            NdisCopyMemory(pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgSSID, &(pFr->Octet[2]),  pFr->Octet[1]);
++        }
++
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT
++        NdisZeroMemory(&StaNlMsgInfo, sizeof(NDIS_AP_802_11_NETLINK_MSG_INFO));
++        StaNlMsgInfo.MsgType = NL_MSG_DEV_ONLINE_STATUS;
++        NdisCopyMemory(&(StaNlMsgInfo.Body), (UCHAR *)&(pAd->ApCfg.MBSSID[0].StaMsgInfo), sizeof(NDIS_AP_802_11_STA_DEV_MSG));
++        //StaNlMsgInfo.Body = &(pAd->ApCfg.MBSSID[0].StaMsgInfo);
++        StaNlMsgInfo.MsgLen = sizeof(NDIS_AP_802_11_STA_DEV_MSG)
++                               +  sizeof(INT) + sizeof(NETLINK_MSG_TYPE);
++        
++        DBGPRINT(RT_DEBUG_OFF, ("-------->%s, %d!!!\n", __func__, __LINE__));
++	    pb_nl_send_msg(&StaNlMsgInfo, StaNlMsgInfo.MsgLen);
++#endif
++    }
++#endif
++
++
++#ifdef VEDOR_IE_FILTER_SUPPORT
++	if (NdisCmpMemory(pAd->VedorIEOUI, ZeroOUI, VEDOR_IE_OUI_LEN))
++	{
++		if (FALSE == PeerProbeIEFilter(Elem->Msg, Elem->MsgLen, pAd->VedorIEOUI, IePkt))
++		{
++			DBGPRINT(RT_DEBUG_OFF, ("PeerProbeIEFilter set filter, not match!\n"));
++			//return;
++		}
++		else
++		{
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT
++			NdisZeroMemory(&(StaIeInfo), sizeof(NDIS_AP_802_11_STA_IE_MSG));
++			NdisZeroMemory(TmpStrMac, MAC_STR_LEN);
++			mac2Str(pFr->Hdr.Addr2, TmpStrMac, 1);
++			NdisCopyMemory(StaIeInfo.ClientMac, TmpStrMac, MAC_STR_LEN);
++			NdisCopyMemory(StaIeInfo.IePkt, IePkt, CUSTOMIZATION_IE_MAX_LEN);
++
++			
++			NdisZeroMemory(&StaNlMsgInfo, sizeof(NDIS_AP_802_11_NETLINK_MSG_INFO));
++			StaNlMsgInfo.MsgType = NL_MSG_IE_REPORT;
++			NdisCopyMemory(&(StaNlMsgInfo.Body), (UCHAR *)&(StaIeInfo), sizeof(NDIS_AP_802_11_STA_IE_MSG));
++			StaNlMsgInfo.MsgLen = sizeof(NDIS_AP_802_11_STA_IE_MSG)
++			 	 	 	 +  sizeof(INT) + sizeof(NETLINK_MSG_TYPE);
++    
++			DBGPRINT(RT_DEBUG_OFF, ("-------->%s, %d!!!\n", __func__, __LINE__));
++			pb_nl_send_msg(&StaNlMsgInfo, StaNlMsgInfo.MsgLen);
++#endif
++ 		}
++	}
++#endif	
++	
++
+ 	for(apidx=0; apidx<pAd->ApCfg.BssidNum; apidx++)
+ 	{
+ 		mbss = &pAd->ApCfg.MBSSID[apidx];
+@@ -892,6 +983,18 @@ VOID APPeerProbeReqAction(
+ 			}
+ #endif /* AIRPLAY_SUPPORT*/
+ 
++#ifdef VEDOR_IE_CONTROL_SUPPORT
++        if (pAd->CustomizationIE[0] == IE_VENDOR_SPECIFIC && pAd->CustomizationIE[1] != 0)
++        {
++            ULONG CusetomzationIELen = 0;
++    		MakeOutgoingFrame(pOutBuffer+FrameLen,       &CusetomzationIELen,
++    						  pAd->CustomizationIE[1] + 2,   pAd->CustomizationIE,
++                              END_OF_ARGS);
++    		FrameLen += CusetomzationIELen;
++			printk("============================VEDOR_IE_CONTROL_SUPPORT\n");
++        }
++#endif
++
+ 	/* 
+ 		add Ralink-specific IE here - Byte0.b0=1 for aggregation, Byte0.b1=1 for piggy-back
+ 		                                 Byte0.b3=1 for rssi-feedback 
+diff --git a/mt76x2/ap/ap_wpa.c b/mt76x2/ap/ap_wpa.c
+index 405de78..3114fe8 100644
+--- a/mt76x2/ap/ap_wpa.c
++++ b/mt76x2/ap/ap_wpa.c
+@@ -660,6 +660,13 @@ VOID WPARetryExec(
+     IN PVOID SystemSpecific3) 
+ {
+     MAC_TABLE_ENTRY     *pEntry = (MAC_TABLE_ENTRY *)FunctionContext;
++#ifdef 	TPSK_SUPPORT
++	unsigned long tpmkIrqFlags;
++	unsigned long idxMacMapirqFlags;
++	INT TpmkIdx = -1;
++	INT	StaIdxmap = -1;
++#endif		
++
+ 
+     if ((pEntry) && IS_ENTRY_CLIENT(pEntry))
+     {
+@@ -679,6 +686,20 @@ VOID WPARetryExec(
+                 {    
+                 	/* send wireless event - for group key handshaking timeout */
+ 					RTMPSendWirelessEvent(pAd, IW_GROUP_HS_TIMEOUT_EVENT_FLAG, pEntry->Addr, pEntry->apidx, 0); 
++
++			/* Add by Dragon, 20150414 */
++#ifdef TPSK_SUPPORT
++        		RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxTableLock), idxMacMapirqFlags);
++
++			//RTMPMaintainStaPMKIdxEntry(pAd); //check weather can del, prepare space
++
++			if ((pEntry->TPMK_EntryIdx != ENTRY_NOT_FOUND) /*&& MAC_ADDR_EQUAL(&pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].MAC, zero1)*/) //replace the STA Idex map
++			{
++				RTMPAddStaPMKIdxEntry(pAd, pEntry->apidx, pEntry->Addr, pEntry->TPMK_EntryIdx);
++			}
++			
++        		RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxTableLock), idxMacMapirqFlags);
++#endif
+ 					
+                     DBGPRINT(RT_DEBUG_TRACE, ("WPARetryExec::Group Key HS exceed retry count, Disassociate client, pEntry->ReTryCounter %d\n", pEntry->ReTryCounter));
+                     MlmeDeAuthAction(pAd, pEntry, REASON_GROUP_KEY_HS_TIMEOUT, FALSE);
+@@ -713,13 +734,54 @@ VOID WPARetryExec(
+                 {
+ 					/* send wireless event - for pairwise key handshaking timeout */
+ 					RTMPSendWirelessEvent(pAd, IW_PAIRWISE_HS_TIMEOUT_EVENT_FLAG, pEntry->Addr, pEntry->apidx, 0);
+-
++					//RTMPSendWirelessEvent(pAd, IW_PAIRWISE_HS_TIMEOUT_EVENT_FLAG, pEntry->Addr, pEntry->apidx, 0);
++#ifdef TPSK_SUPPORT
++						RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxTableLock), idxMacMapirqFlags);
++		
++						//RTMPMaintainStaPMKIdxEntry(pAd); //check weather can del, prepare space
++		
++						if ((pEntry->TPMK_EntryIdx != ENTRY_NOT_FOUND) /*&& MAC_ADDR_EQUAL(&pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].MAC, zero1)*/) //replace the STA Idex map
++						{
++							RTMPAddStaPMKIdxEntry(pAd, pEntry->apidx, pEntry->Addr, pEntry->TPMK_EntryIdx);
++						}
++					
++						RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxTableLock), idxMacMapirqFlags);
++#endif	
+                     DBGPRINT(RT_DEBUG_TRACE, ("WPARetryExec::MSG1 timeout, pEntry->ReTryCounter = %d\n", pEntry->ReTryCounter));
+                     MlmeDeAuthAction(pAd, pEntry, REASON_4_WAY_TIMEOUT, FALSE);
+                 }
+ 				/* 6. Retry 4 way message 1, the last try, the timeout is 3 sec for EAPOL-Start */
+                 else if (pEntry->ReTryCounter == (PEER_MSG1_RETRY_TIMER_CTR + 3))                
+                 {
++#ifdef TPSK_SUPPORT
++                    RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.TPMKTableLock), tpmkIrqFlags);
++                    RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxTableLock), idxMacMapirqFlags);
++
++                    /* update sta map idx table */
++                    if ((pEntry->TPMK_EntryIdx != ENTRY_NOT_FOUND) /*&& MAC_ADDR_EQUAL(&pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].MAC, zero1)*/) //replace the STA Idex map
++                    {
++                        RTMPAddStaPMKIdxEntry(pAd, pEntry->apidx, pEntry->Addr, pEntry->TPMK_EntryIdx);
++                    }
++
++                    /* if msg2 fail, retry we use a new pmk */
++                    if ((StaIdxmap = RTMPSearchStaPMKIdxEntry(pAd, pEntry->apidx, pEntry->Addr)) != -1) // staidxmap yes, means connect before
++                    {
++                        if (((TpmkIdx = RTMPSearchTPMKEntryMatchBroadcastMac(pAd, pEntry->apidx, pEntry->Addr, 
++                            (pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxInfo[StaIdxmap].StaPMKIdx+ 1))) != -1))
++                        {
++                            pEntry->TPMK_EntryIdx = TpmkIdx;
++                            DBGPRINT(RT_DEBUG_TRACE, ("---------->WPARetryExec - STA Idex map1,2.TPMK matched and start key cache algorithm\n"));
++                        }
++                        else
++                       {
++                            pEntry->TPMK_EntryIdx = ENTRY_NOT_FOUND;
++                            DBGPRINT(RT_DEBUG_TRACE, ("---------->WPARetryExec - STA Idex map1,2.TPMK not found \n"));
++                        }
++                    }
++                    
++                    RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxTableLock), idxMacMapirqFlags);
++                    RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.TPMKTableLock), tpmkIrqFlags);
++#endif					
+                     DBGPRINT(RT_DEBUG_TRACE, ("WPARetryExec::Retry MSG1, the last try\n"));
+                     WPAStart4WayHS(pAd , pEntry, PEER_MSG3_RETRY_EXEC_INTV);
+                 }
+@@ -728,6 +790,35 @@ VOID WPARetryExec(
+                 {
+                     if ((pEntry->WpaState == AS_PTKSTART) || (pEntry->WpaState == AS_INITPSK) || (pEntry->WpaState == AS_INITPMK))
+                     {
++#ifdef TPSK_SUPPORT
++                        RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.TPMKTableLock), tpmkIrqFlags);
++                        RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxTableLock), idxMacMapirqFlags);
++
++                        /* update sta map idx table */
++            			if ((pEntry->TPMK_EntryIdx != ENTRY_NOT_FOUND) /*&& MAC_ADDR_EQUAL(&pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].MAC, zero1)*/) //replace the STA Idex map
++            			{
++            				RTMPAddStaPMKIdxEntry(pAd, pEntry->apidx, pEntry->Addr, pEntry->TPMK_EntryIdx);
++            			}
++
++                        /* if msg2 fail, retry we use a new pmk */
++                        if ((StaIdxmap = RTMPSearchStaPMKIdxEntry(pAd, pEntry->apidx, pEntry->Addr)) != -1) // staidxmap yes, means connect before
++            			{
++            				if (((TpmkIdx = RTMPSearchTPMKEntryMatchBroadcastMac(pAd, pEntry->apidx, pEntry->Addr, 
++            					(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxInfo[StaIdxmap].StaPMKIdx+ 1))) != -1))
++            				{
++            					pEntry->TPMK_EntryIdx = TpmkIdx;
++            					DBGPRINT(RT_DEBUG_TRACE, ("---------->WPARetryExec - STA Idex map1,2.TPMK matched and start key cache algorithm\n"));
++            				}
++            				else
++            				{
++            					pEntry->TPMK_EntryIdx = ENTRY_NOT_FOUND;
++            					DBGPRINT(RT_DEBUG_TRACE, ("---------->WPARetryExec - STA Idex map1,2.TPMK not found \n"));
++            				}
++            			}
++                        
++            			RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxTableLock), idxMacMapirqFlags);
++            			RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.TPMKTableLock), tpmkIrqFlags);
++#endif						
+                         DBGPRINT(RT_DEBUG_TRACE, ("WPARetryExec::ReTry MSG1 of 4-way Handshake\n"));
+                         WPAStart4WayHS(pAd, pEntry, PEER_MSG1_RETRY_EXEC_INTV);
+                     }
+@@ -1130,6 +1221,498 @@ VOID RTMPMaintainPMKIDCache(
+ #endif /* DOT1X_SUPPORT */
+ 
+ 
++	/* Add by Dragon, 20150413 */
++#ifdef TPSK_SUPPORT
++VOID RTMPAddTPMKEntry(
++	IN  PRTMP_ADAPTER   		pAd,
++	IN	INT						apidx,
++	IN	PUCHAR				pAddr,
++	IN	UCHAR					*PMK,
++	IN  UCHAR	*pPassword)
++{
++	INT	i, EntryIdx;
++    unsigned char zero1[6]={0xff,0xff,0xff,0xff,0xff,0xff};
++
++	/* TPMK  in table, Update TPMK Entry status , not FF entry */
++	if (((EntryIdx = RTMPSearchTPMKEntryMatchStaMac(pAd, apidx, pAddr)) != -1) && !MAC_ADDR_EQUAL(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[EntryIdx].MAC, zero1))
++	{
++		NdisGetSystemUpTime(&(pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[EntryIdx].RefreshTime));
++//		pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[EntryIdx].duration =  pAd->ApCfg.MBSSID[apidx].TPMKEntryPeriod; // age time
++		pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].duration =  pAd->ApCfg.MBSSID[apidx].TPMKEntryPeriod;  // age time //shiner add
++		NdisMoveMemory(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[EntryIdx].PMK, PMK, PMK_LEN);
++		NdisCopyMemory(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[EntryIdx].PassWd, pPassword, PSK_PAWORD_LEN);
++        
++		DBGPRINT(RT_DEBUG_TRACE, ("----->RTMPAddTPMKEntry update %02x:%02x:%02x:%02x:%02x:%02x cache(%d) from IF(ra%d)\n", 
++           	pAddr[0], pAddr[1], pAddr[2], pAddr[3], pAddr[4], pAddr[5], EntryIdx, apidx));
++		
++		return;
++	}
++
++    /* TPMK  in table, Update TPMK Entry status , FF entry, PMK Equeue */
++	if (((EntryIdx = RTMPSearchTPMKEntryMatchStaMac(pAd, apidx, pAddr)) != -1) && MAC_ADDR_EQUAL(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[EntryIdx].MAC, zero1))
++	{
++        if ( 0 == NdisCmpMemory(pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[EntryIdx].PMK, PMK, PMK_LEN))
++        {
++    		NdisGetSystemUpTime(&(pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[EntryIdx].RefreshTime));
++    		pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[EntryIdx].duration =  pAd->ApCfg.MBSSID[apidx].TPMKEntryPeriod; // age time
++    		NdisMoveMemory(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[EntryIdx].PMK, PMK, PMK_LEN);
++    		NdisCopyMemory(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[EntryIdx].PassWd, pPassword, PSK_PAWORD_LEN);
++            
++    		DBGPRINT(RT_DEBUG_TRACE, ("----->RTMPAddTPMKEntry update %02x:%02x:%02x:%02x:%02x:%02x cache(%d) from IF(ra%d)\n", 
++               	pAddr[0], pAddr[1], pAddr[2], pAddr[3], pAddr[4], pAddr[5], EntryIdx, apidx));
++    		
++    		return;
++        }
++	}
++
++	/* Add a TPMK Entry */
++	for (i = 0; i < MAX_TPMK_COUNT; i++)
++	{
++		if (!pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].Valid)
++		{
++			pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].Valid = TRUE;
++			NdisGetSystemUpTime(&(pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].RefreshTime));
++			pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[EntryIdx].duration =  pAd->ApCfg.MBSSID[apidx].TPMKEntryPeriod;  // age time
++			COPY_MAC_ADDR(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].MAC, pAddr);
++			NdisMoveMemory(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].PMK, PMK, PMK_LEN);
++			NdisMoveMemory(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].PassWd, pPassword, 64);
++			
++			DBGPRINT(RT_DEBUG_TRACE, ("RTMPAddTPMKEntry add %02x:%02x:%02x:%02x:%02x:%02x entry(%d) from IF(ra%d)\n", 
++			pAddr[0], pAddr[1], pAddr[2], pAddr[3], pAddr[4], pAddr[5], i, apidx));
++			break;
++		}
++	}
++ 
++	if (i == MAX_TPMK_COUNT)
++	{
++		ULONG	timestamp = 0, idx = 0;
++
++		DBGPRINT(RT_DEBUG_TRACE, ("RTMPAddTPMKEntry(IF(%d) entry full\n", apidx));
++		for (i = 0; i < MAX_TPMK_COUNT; i++)
++		{
++			if (pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].Valid)
++			{
++				if (((timestamp == 0) && (idx == 0)) || ((timestamp != 0) && timestamp < pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].RefreshTime))
++				{
++					timestamp = pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].RefreshTime;
++					idx = i;
++				}
++			}
++		}
++		pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[idx].Valid = TRUE;
++		NdisGetSystemUpTime(&(pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[idx].RefreshTime));
++		COPY_MAC_ADDR(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[idx].MAC, pAddr);
++		NdisMoveMemory(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[idx].PMK, PMK, PMK_LEN);
++		DBGPRINT(RT_DEBUG_TRACE, ("RTMPAddTPMKEntry add %02x:%02x:%02x:%02x:%02x:%02x entry(%ld) from IF(ra%d)\n", 
++		pAddr[0], pAddr[1], pAddr[2], pAddr[3], pAddr[4], pAddr[5], idx, apidx));
++	}
++}
++
++VOID RTMPFillMacOfTPMKEntry(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	MAC_TABLE_ENTRY  *pEntry)
++{
++	unsigned char zero1[6]={0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT 
++	extern int mac2Str (unsigned char *mac, unsigned char *str, int bColon);
++	UCHAR TmpStrMac[MAC_STR_LEN] = {0};
++	NDIS_AP_802_11_NETLINK_MSG_INFO StaNlMsgInfo;   
++	NDIS_AP_802_11_STA_TPSK_MSG StaTpskMsg;
++	extern int pb_nl_send_msg(void *msg, int msg_size);
++#endif
++
++	if ((pEntry->TPMK_EntryIdx != ENTRY_NOT_FOUND) && MAC_ADDR_EQUAL(&pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].MAC, zero1))
++	{
++		COPY_MAC_ADDR(&pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].MAC, pEntry->Addr);
++		DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPFillMacOfTPMKEntry %02x:%02x:%02x:%02x:%02x:%02x entry(%d) from IF(ra%d)\n", 
++		pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].MAC[0],
++		pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].MAC[1], 
++		pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].MAC[2],
++		pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].MAC[3],
++		pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].MAC[4],
++		pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].MAC[5],
++		pEntry->TPMK_EntryIdx,
++		pEntry->apidx));
++
++		pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].duration = 0;//shiner add+
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT
++		NdisZeroMemory(&(StaTpskMsg), sizeof(NDIS_AP_802_11_STA_TPSK_MSG));
++		NdisZeroMemory(TmpStrMac, MAC_STR_LEN);
++		mac2Str(pEntry->Addr, TmpStrMac, 1);
++		NdisCopyMemory(StaTpskMsg.Mac, TmpStrMac, MAC_STR_LEN);
++		NdisCopyMemory(StaTpskMsg.Tpsk, 
++                    pAd->ApCfg.MBSSID[pEntry->apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].PassWd,
++                    PSK_PAWORD_LEN);
++		StaTpskMsg.Duration = 0;
++
++		
++		NdisZeroMemory(&StaNlMsgInfo, sizeof(NDIS_AP_802_11_NETLINK_MSG_INFO));
++		StaNlMsgInfo.MsgType = NL_MSG_TPSK_UPGRADE;
++		NdisCopyMemory(&(StaNlMsgInfo.Body), (UCHAR *)&(StaTpskMsg), sizeof(NDIS_AP_802_11_STA_TPSK_MSG));
++		StaNlMsgInfo.MsgLen = sizeof(NDIS_AP_802_11_STA_TPSK_MSG)
++	                       +  sizeof(INT) + sizeof(NETLINK_MSG_TYPE);
++	
++		DBGPRINT(RT_DEBUG_OFF, ("-------->%s, %d!!!\n", __func__, __LINE__));
++		pb_nl_send_msg(&StaNlMsgInfo, StaNlMsgInfo.MsgLen);
++#endif
++	}
++}
++
++INT RTMPSearchTPMKEntryMatchStaMac(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN	PUCHAR		pAddr)
++{
++	INT	i = 0;
++
++	/* first match the mac */
++	for (i = 0; i < MAX_TPMK_COUNT; i++)
++	{
++		if ((pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].Valid)
++			&& MAC_ADDR_EQUAL(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].MAC, pAddr))
++		{
++			DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPSearchTPMKEntryMatchStaMac %02x:%02x:%02x:%02x:%02x:%02x entry(%d) from IF(ra%d)\n", 
++			pAddr[0], pAddr[1], pAddr[2], pAddr[3], pAddr[4], pAddr[5], i, apidx));
++			break;
++		}
++	}
++
++	if (i == MAX_TPMK_COUNT)
++	{
++		DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPSearchTPMKEntryMatchStaMac - IF(%d) not found\n", apidx));
++		return -1;
++	}
++
++	return i;
++}
++
++INT RTMPSearchTPMKEntryMatchBroadcastMac(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN	PUCHAR		pAddr,
++	IN	INT				fromIdx)
++{
++	INT	i = fromIdx;
++	unsigned char zero1[6]={0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
++
++	if((i == MAX_TPMK_COUNT) || (i > MAX_TPMK_COUNT))
++		return -1;
++
++	/* if no mac match , search MAC Addr FF */
++	for (i = fromIdx; i < MAX_TPMK_COUNT; i++)
++	{
++		if ((pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].Valid)
++			&& MAC_ADDR_EQUAL(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].MAC, zero1))
++		{
++			DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPSearchTPMKEntryMatchBroadcastMac %02x:%02x:%02x:%02x:%02x:%02x entry(%d) from IF(ra%d)\n", 
++        		pAddr[0], pAddr[1], pAddr[2], pAddr[3], pAddr[4], pAddr[5], i, apidx));
++			break;
++		}
++	}
++
++	if (i == MAX_TPMK_COUNT)
++	{
++		DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPSearchTPMKEntryMatchBroadcastMac - IF(%d) not found\n", apidx));
++		return -1;
++	}
++
++	return i;
++}
++
++INT RTMPSearchTPMKEntryMatchTPMK(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN	PUCHAR		PMK)
++{
++	INT	i = 0;
++
++	/* first match the mac */
++	for (i = 0; i < MAX_TPMK_COUNT; i++)
++	{
++		if ((pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].Valid)
++			&& RTMPEqualMemory(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].PMK, PMK, 32))
++		{
++			DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPSearchTPMKEntryMatchTPMK entry(%d) from IF(ra%d)\n", i, apidx));
++			break;
++		}
++	}
++
++	if (i == MAX_TPMK_COUNT)
++	{
++		DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPSearchTPMKEntryMatchTPMK - IF(%d) not found\n", apidx));
++		return -1;
++	}
++
++	return i;
++}
++
++INT RTMPSearchTPMKEntryMatchPwd(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN	PUCHAR		PWD)
++{
++	INT	i = 0;
++
++	/* first match the mac */
++	for (i = 0; i < MAX_TPMK_COUNT; i++)
++	{
++		if ((pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].Valid)
++			&& RTMPEqualMemory(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[i].PassWd, PWD, PSK_PAWORD_LEN))
++		{
++			DBGPRINT(RT_DEBUG_OFF, ("---------->RTMPSearchTPMKEntryMatchPWD entry(%d) from IF(ra%d)\n", i, apidx));
++			break;
++		}
++	}
++
++	if (i == MAX_TPMK_COUNT)
++	{
++		DBGPRINT(RT_DEBUG_OFF, ("---------->RTMPSearchTPMKEntryMatchPWD - IF(%d) not found\n", apidx));
++		return -1;
++	}
++
++	return i;
++}
++
++
++VOID RTMPDeleteTPMKEntry(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN  INT				idx)
++{
++	if (pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[idx].Valid)
++	{
++		pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[idx].Valid = FALSE;
++		DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPDeleteTPMKEntry(IF(%d), del TPMK EntryIdx=%d\n", apidx, idx));
++	}
++}
++
++VOID RTMPMaintainTPMKEntry(
++	IN  PRTMP_ADAPTER   pAd)
++{
++	INT	i, j;
++	ULONG Now;
++	unsigned char zero1[6]={0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
++	unsigned long irqFlags;
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT 
++	extern int mac2Str (unsigned char *mac, unsigned char *str, int bColon);
++	UCHAR TmpStrMac[MAC_STR_LEN] = {0};
++	NDIS_AP_802_11_NETLINK_MSG_INFO StaNlMsgInfo;
++	NDIS_AP_802_11_STA_TPSK_MSG StaTpskMsg;
++	extern int pb_nl_send_msg(void *msg, int msg_size);
++#endif
++
++	
++	for (i = 0; i < MAX_MBSSID_NUM(pAd); i++)
++	{
++		MULTISSID_STRUCT *pMbss;
++		pMbss = &pAd->ApCfg.MBSSID[i];
++
++		RTMP_INT_LOCK(&(pMbss->TPMKTable.TPMKTableLock), irqFlags);
++		for (j = 0; j < MAX_TPMK_COUNT; j++)
++		{
++			PAP_BSSID_TPMK_INFO pBssTPMKInfo = &pMbss->TPMKTable.BSSIDTPMKInfo[j];
++
++			NdisGetSystemUpTime(&Now);
++	//		pMbss->TPMKTable.BSSIDTPMKInfo[j].duration = pMbss->TPMKEntryPeriod - (Now - pBssTPMKInfo->RefreshTime);
++			pMbss->TPMKTable.BSSIDTPMKInfo[j].Validtime = pMbss->TPMKTable.BSSIDTPMKInfo[j].duration - (Now - pBssTPMKInfo->RefreshTime);
++			DBGPRINT(RT_DEBUG_WARN,("The TPMKTable.BSSIDTPMKInfo[%d] duration is %d, valid time is %d.\n", j, pMbss->TPMKTable.BSSIDTPMKInfo[j].duration,
++			pMbss->TPMKTable.BSSIDTPMKInfo[j].Validtime));
++
++			if ((pBssTPMKInfo->Valid)
++			&& (pMbss->TPMKTable.BSSIDTPMKInfo[j].duration != 0) //shiner add
++			&& (RTMP_TIME_AFTER(Now, (pBssTPMKInfo->RefreshTime + pBssTPMKInfo->duration))))//shiner add	
++			{
++				RTMPDeleteTPMKEntry(pAd, i, j);
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT
++				NdisZeroMemory(&(StaTpskMsg), sizeof(NDIS_AP_802_11_STA_TPSK_MSG));
++				NdisZeroMemory(TmpStrMac, MAC_STR_LEN);
++//				mac2Str(zero1, TmpStrMac, 1);
++				mac2Str(pMbss->TPMKTable.BSSIDTPMKInfo[j].MAC, TmpStrMac, 1); //shiner add
++				NdisCopyMemory(StaTpskMsg.Mac, TmpStrMac, MAC_STR_LEN);
++				NdisCopyMemory(StaTpskMsg.Tpsk, 
++				               pMbss->TPMKTable.BSSIDTPMKInfo[j].PassWd,
++				               PSK_PAWORD_LEN);
++				StaTpskMsg.Duration = -1;
++
++				
++				NdisZeroMemory(&StaNlMsgInfo, sizeof(NDIS_AP_802_11_NETLINK_MSG_INFO));
++				StaNlMsgInfo.MsgType = NL_MSG_TPSK_UPGRADE;
++				NdisCopyMemory(&(StaNlMsgInfo.Body), (UCHAR *)&(StaTpskMsg), sizeof(NDIS_AP_802_11_STA_TPSK_MSG));
++				StaNlMsgInfo.MsgLen = sizeof(NDIS_AP_802_11_STA_TPSK_MSG)
++            	                       +  sizeof(INT) + sizeof(NETLINK_MSG_TYPE);
++				
++				DBGPRINT(RT_DEBUG_OFF, ("-------->%s, %d!!!\n", __func__, __LINE__));
++				pb_nl_send_msg(&StaNlMsgInfo, StaNlMsgInfo.MsgLen);
++#endif
++			}
++		}
++		RTMP_INT_UNLOCK(&(pMbss->TPMKTable.TPMKTableLock), irqFlags);
++	}
++}
++
++/**********************************************************************************************************************************************
+++* 	Func: Add a StaPMKIdx Entry
+++*
+++* 	Input:
+++*
++*	Out:
++*
++*	Return:
++**********************************************************************************************************************************************/
++VOID RTMPAddStaPMKIdxEntry(
++	IN  PRTMP_ADAPTER   		pAd,
++	IN	INT						apidx,
++	IN	PUCHAR				pAddr,
++	IN	UCHAR	StaPMKIdx)
++{
++	INT	i, EntryIdx;
++
++	/* Update StaPMKIdx Entry status */
++	if ((EntryIdx = RTMPSearchStaPMKIdxEntry(pAd, apidx, pAddr)) != -1)
++	{
++		NdisGetSystemUpTime(&(pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[EntryIdx].RefreshTime));
++		pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[EntryIdx].StaPMKIdx= StaPMKIdx;
++		
++		DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPAddStaPMKIdxEntry update %02x:%02x:%02x:%02x:%02x:%02x cache(%d) from IF(ra%d)\n", 
++		pAddr[0], pAddr[1], pAddr[2], pAddr[3], pAddr[4], pAddr[5], EntryIdx, apidx));
++		
++		return;
++	}
++
++	/* Add a StaPMKIdx Entry */
++	for (i = 0; i < MAX_StaPMKIdx_COUNT; i++)
++	{
++		if (!pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[i].Valid)
++		{
++			pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[i].Valid = TRUE;
++			NdisGetSystemUpTime(&(pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[i].RefreshTime));
++			COPY_MAC_ADDR(&pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[i].MAC, pAddr);
++			pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[i].StaPMKIdx= StaPMKIdx;
++			
++			DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPAddStaPMKIdxEntry add %02x:%02x:%02x:%02x:%02x:%02x entry(%d) from IF(ra%d)\n", 
++            	pAddr[0], pAddr[1], pAddr[2], pAddr[3], pAddr[4], pAddr[5], i, apidx));
++			break;
++		}
++	}
++ 
++	if (i == MAX_StaPMKIdx_COUNT)
++	{
++		ULONG	timestamp = 0, idx = 0;
++
++		DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPAddStaPMKIdxEntry(IF(%d) entry full\n", apidx));
++		for (i = 0; i < MAX_StaPMKIdx_COUNT; i++)
++		{
++			if (pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[i].Valid)
++			{
++				/* over write the oldest entry */
++				if (((timestamp == 0) && (idx == 0)) || ((timestamp != 0) && timestamp > pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[i].RefreshTime))
++				{
++					timestamp = pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[i].RefreshTime;
++					idx = i;
++				}
++			}
++		}
++		pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[idx].Valid = TRUE;
++		NdisGetSystemUpTime(&(pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[idx].RefreshTime));
++		COPY_MAC_ADDR(&pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[idx].MAC, pAddr);
++		pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[idx].StaPMKIdx= StaPMKIdx;
++		
++		DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPAddStaPMKIdxEntry add %02x:%02x:%02x:%02x:%02x:%02x entry(%ld) from IF(ra%d)\n", 
++		pAddr[0], pAddr[1], pAddr[2], pAddr[3], pAddr[4], pAddr[5], idx, apidx));
++	}
++}
++
++
++/**********************************************************************************************************************************************
++* 	Func: Search the STA IDX, only save the multi FF entry'S mac & IDX & time
++*
++* 	Input: STA MAC
++*
++*	Out: 
++*
++*	Return: Return the search idx 
++**********************************************************************************************************************************************/
++INT RTMPSearchStaPMKIdxEntry(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN	PUCHAR		pAddr)
++{
++	INT	i = 0;
++	//unsigned char zero1[6]={0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
++
++	/* match the sta mac */
++	for (i = 0; i < MAX_StaPMKIdx_COUNT; i++)
++	{
++		if ((pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[i].Valid)
++			&& MAC_ADDR_EQUAL(&pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[i].MAC, pAddr))
++		{
++			DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPSearchStaPMKIdxEntry %02x:%02x:%02x:%02x:%02x:%02x entry(%d) from IF(ra%d)\n", 
++            	pAddr[0], pAddr[1], pAddr[2], pAddr[3], pAddr[4], pAddr[5], i, apidx));
++			break;
++		}
++	}
++
++	if (i == MAX_StaPMKIdx_COUNT)
++	{
++		DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPSearchStaPMKIdxEntry - IF(%d) not found\n", apidx));
++		return -1;
++	}
++
++	DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPSearchStaPMKIdxEntry \n"));
++
++	return i;
++}
++
++
++
++VOID RTMPDeleteStaPMKIdxEntry(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN  INT				idx)
++{
++	if (pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[idx].Valid)
++	{
++		pAd->ApCfg.MBSSID[apidx].StaPMKIdxTable.StaPMKIdxInfo[idx].Valid= FALSE;
++		DBGPRINT(RT_DEBUG_TRACE, ("---------->RTMPDeleteStaPMKIdxEntry(IF(%d), del TPMK EntryIdx=%d\n", apidx, idx));
++	}
++}
++
++VOID RTMPMaintainStaPMKIdxEntry(
++	IN  PRTMP_ADAPTER   pAd)
++{
++	INT	i, j;
++	ULONG Now;
++	unsigned long irqFlags;
++
++	for (i = 0; i < MAX_MBSSID_NUM(pAd); i++)
++	{
++		MULTISSID_STRUCT *pMbss;
++		pMbss = &pAd->ApCfg.MBSSID[i];
++
++		RTMP_INT_LOCK(&(pMbss->StaPMKIdxTable.StaPMKIdxTableLock), irqFlags);
++		for (j = 0; j < MAX_StaPMKIdx_COUNT; j++)
++		{
++			PAP_BSSID_StaPMKIdx_INFO pBssStaPMKIdxInfo = &pMbss->StaPMKIdxTable.StaPMKIdxInfo[j];
++
++			NdisGetSystemUpTime(&Now);
++
++			/* time out 3min or idx > MAX_TPMK_COUNT - 1, del this entry */
++			if ((pBssStaPMKIdxInfo->Valid)
++				&& /*((Now - pBssInfo->RefreshTime) >= pMbss->PMKCachePeriod)*/
++				((RTMP_TIME_AFTER(Now, (pBssStaPMKIdxInfo->RefreshTime + pMbss->StaPMKIdxEntryPeriod))) || (pBssStaPMKIdxInfo->StaPMKIdx > (MAX_TPMK_COUNT - 1))))
++			{
++				RTMPDeleteStaPMKIdxEntry(pAd, i, j);
++			}
++		}
++	
++		RTMP_INT_UNLOCK(&(pMbss->StaPMKIdxTable.StaPMKIdxTableLock), irqFlags);
++	}
++}
++
++
++#endif
++
++
+ /*
+     ==========================================================================
+     Description:
+diff --git a/mt76x2/ap/apcli_sync.c b/mt76x2/ap/apcli_sync.c
+index c83cfc7..32cb1b4 100644
+--- a/mt76x2/ap/apcli_sync.c
++++ b/mt76x2/ap/apcli_sync.c
+@@ -990,6 +990,17 @@ static VOID ApCliEnqueueProbeRequest(
+ 		}
+ #endif /* RT_CFG80211_P2P_CONCURRENT_DEVICE*/		
+ 
++#ifdef VEDOR_IE_CONTROL_SUPPORT
++		if (pAd->CustomizationIE[0] == IE_VENDOR_SPECIFIC && pAd->CustomizationIE[1] != 0)
++		{
++			ULONG CusetomzationIELen = 0;
++			MakeOutgoingFrame(pOutBuffer+FrameLen,       &CusetomzationIELen,
++                          pAd->CustomizationIE[1] + 2,   pAd->CustomizationIE,
++                          END_OF_ARGS);
++			FrameLen += CusetomzationIELen;
++		}
++#endif
++
+ 		MiniportMMRequest(pAd, QID_AC_BE, pOutBuffer, FrameLen);
+ 		MlmeFreeMemory(pAd, pOutBuffer);
+ 	}
+diff --git a/mt76x2/common/cmm_sanity.c b/mt76x2/common/cmm_sanity.c
+index 80cc206..fc37171 100644
+--- a/mt76x2/common/cmm_sanity.c
++++ b/mt76x2/common/cmm_sanity.c
+@@ -2904,3 +2904,51 @@ BOOLEAN PeerProbeReqSanity(
+ 
+ 
+ 
++
++#ifdef VEDOR_IE_FILTER_SUPPORT
++BOOLEAN PeerProbeIEFilter(
++    IN VOID *Msg, 
++    IN ULONG MsgLen,
++    IN UCHAR FilterOUI[3],
++    OUT UCHAR *IePkt)
++{
++	PFRAME_802_11 Fr = (PFRAME_802_11)Msg;
++	UCHAR		*Ptr;
++	UCHAR		eid =0, eid_len = 0, *eid_data;
++	UINT		total_ie_len = 0;
++
++	Ptr = Fr->Octet;
++	eid = Ptr[0];
++	eid_len = Ptr[1];
++	total_ie_len = eid_len + 2;
++	eid_data = Ptr+2;
++    
++    /* get variable fields from payload and advance the pointer*/
++	while((eid_data + eid_len) <= ((UCHAR*)Fr + MsgLen))
++	{    	
++	switch(eid)
++	{
++		case IE_VENDOR_SPECIFIC:
++		{
++			if (NdisEqualMemory(eid_data, FilterOUI, VEDOR_IE_OUI_LEN))
++			{
++				IePkt[0] = IE_VENDOR_SPECIFIC;
++				IePkt[1] = eid_len;
++				NdisCopyMemory(&IePkt[2], eid_data, eid_len);
++				return TRUE;
++			}
++		}
++		break;
++                
++		default:
++			break;
++        }
++		eid = Ptr[total_ie_len];
++		eid_len = Ptr[total_ie_len + 1];
++		eid_data = Ptr + total_ie_len + 2;
++		total_ie_len += (eid_len + 2);
++	}
++
++	return FALSE;
++}
++#endif
+\ No newline at end of file
+diff --git a/mt76x2/common/cmm_wpa.c b/mt76x2/common/cmm_wpa.c
+index c80fb1f..39fe5b9 100644
+--- a/mt76x2/common/cmm_wpa.c
++++ b/mt76x2/common/cmm_wpa.c
+@@ -1375,6 +1375,10 @@ VOID PeerPairMsg2Action(
+ #ifdef CONFIG_AP_SUPPORT
+ 	UCHAR				apidx = 0;
+ #endif /* CONFIG_AP_SUPPORT */
++#ifdef TPSK_SUPPORT
++	unsigned long irqFlags;
++	INT TPMK_EntryIdxOld = -1;
++#endif
+ 
+     DBGPRINT(RT_DEBUG_TRACE, ("===> PeerPairMsg2Action \n"));
+ 
+@@ -1399,7 +1403,37 @@ VOID PeerPairMsg2Action(
+ 
+ 		wdev = &pAd->ApCfg.MBSSID[apidx].wdev;
+ 		pBssid = wdev->bssid;
+-		pmk_ptr = pAd->ApCfg.MBSSID[apidx].PMK;
++	/* Add by Dragon, 20150414 */
++#ifdef TPSK_SUPPORT
++	/* If TPMK match in WPAPSKWPA2PSK mode, fill TPMK into Key data field and update PMK here	*/
++	if (((pEntry->AuthMode == Ndis802_11AuthModeWPAPSK) 
++		|| (pEntry->AuthMode == Ndis802_11AuthModeWPA2PSK) 
++		|| (pEntry->AuthMode == Ndis802_11AuthModeWPA1PSKWPA2PSK))  
++		)
++	{
++		if(pEntry->TPMK_EntryIdx != ENTRY_NOT_FOUND)
++		{
++			DBGPRINT(RT_DEBUG_OFF, ("---------->Use TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].PMK.\n "));
++			hex_dump("-->TPMK", pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].PMK, 32);
++			pmk_ptr = pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].PMK;
++		}
++		else /* defalut key */
++		{
++			DBGPRINT(RT_DEBUG_OFF, ("---------->Use default PMK\n "));
++		
++			pmk_ptr = pAd->ApCfg.MBSSID[apidx].PMK;
++
++			TPMK_EntryIdxOld = RTMPSearchStaPMKIdxEntry(pAd, apidx, pEntry->Addr);
++			if (-1 != TPMK_EntryIdxOld)
++			{
++                		RTMPDeleteStaPMKIdxEntry(pAd, apidx, TPMK_EntryIdxOld);
++			}
++		}
++	}
++#else
++ 		pmk_ptr = pAd->ApCfg.MBSSID[apidx].PMK;
++#endif
++
+ 		gtk_ptr = pAd->ApCfg.MBSSID[apidx].GTK;
+ 		group_cipher = wdev->GroupKeyWepStatus;
+ 		default_key = wdev->DefaultKeyId;
+@@ -1550,8 +1584,22 @@ VOID PeerPairMsg2Action(
+ 	}
+ 
+ 	/* Sanity Check peer Pairwise message 2 - Replay Counter, MIC, RSNIE*/
+-	if (PeerWpaMessageSanity(pAd, pMsg2, MsgLen, EAPOL_PAIR_MSG_2, pEntry) == FALSE)
++	if (PeerWpaMessageSanity(pAd, pMsg2, MsgLen, EAPOL_PAIR_MSG_2, pEntry) == FALSE){
++			/* Add by Dragon, 20150414 */
++#ifdef TPSK_SUPPORT
++		RTMP_INT_LOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxTableLock), irqFlags);
++
++		//RTMPMaintainStaPMKIdxEntry(pAd); //check weather can del, prepare space
++
++		if ((pEntry->TPMK_EntryIdx != ENTRY_NOT_FOUND) /*&& MAC_ADDR_EQUAL(&pAd->ApCfg.MBSSID[apidx].TPMKTable.BSSIDTPMKInfo[pEntry->TPMK_EntryIdx].MAC, zero1)*/) //replace the STA Idex map
++		{
++			RTMPAddStaPMKIdxEntry(pAd, pEntry->apidx, pEntry->Addr, pEntry->TPMK_EntryIdx);
++		}
++			
++		RTMP_INT_UNLOCK(&(pAd->ApCfg.MBSSID[pEntry->apidx].StaPMKIdxTable.StaPMKIdxTableLock), irqFlags);
++#endif		
+ 		return;
++	}
+ 
+     do
+     {
+@@ -2034,6 +2082,19 @@ VOID PeerPairMsg4Action(
+ 	UINT            	MsgLen;
+ 	BOOLEAN             Cancelled;
+ 	UCHAR				group_cipher = Ndis802_11WEPDisabled;
++#ifdef 	TPSK_SUPPORT
++	unsigned long irqFlags;
++	MULTISSID_STRUCT *pMbss;
++	int idx;
++
++#endif
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT 
++	NDIS_AP_802_11_NETLINK_MSG_INFO StaNlMsgInfo;   
++	extern int mac2Str (unsigned char *mac, unsigned char *str, int bColon);
++	UCHAR TmpStrMac[MAC_STR_LEN] = {0};
++	extern int pb_nl_send_msg(void *msg, int msg_size);
++#endif	
++	
+ 
+     DBGPRINT(RT_DEBUG_TRACE, ("===> PeerPairMsg4Action\n"));
+ 
+@@ -2238,12 +2299,57 @@ VOID PeerPairMsg4Action(
+ 		}
+ #endif	 
+ 	 
+-	 
++			/* Add by Dragon, 20150413, if find in tpmk table,  and the mac is ffff, modify the mac based on STA mac  */
++#ifdef TPSK_SUPPORT
++			pMbss = &pAd->ApCfg.MBSSID[pEntry->apidx];
++			RTMP_INT_LOCK(&(pMbss->TPMKTable.TPMKTableLock), irqFlags);
++			RTMPFillMacOfTPMKEntry(pAd, pEntry);
++
++			/* del the old mac entry */
++			if ( (idx = RTMPSearchTPMKEntryMatchStaMac(pAd, pEntry->apidx, pEntry->Addr)) != -1)
++			{
++				if (idx != pEntry->TPMK_EntryIdx)
++					RTMPDeleteTPMKEntry(pAd, pEntry->apidx, idx);
++			}
++			RTMP_INT_UNLOCK(&(pMbss->TPMKTable.TPMKTableLock), irqFlags);
++
++			RTMP_INT_LOCK(&(pMbss->StaPMKIdxTable.StaPMKIdxTableLock), irqFlags);
++			if ( (idx = RTMPSearchStaPMKIdxEntry(pAd, pEntry->apidx, pEntry->Addr)) != -1)
++			{
++				RTMPDeleteStaPMKIdxEntry(pAd, pEntry->apidx, idx);
++			}
++			RTMP_INT_UNLOCK(&(pMbss->StaPMKIdxTable.StaPMKIdxTableLock), irqFlags);
++				
++			/* SEND EVENT*/
++#endif
+ 	        DBGPRINT(RT_DEBUG_OFF, ("AP SETKEYS DONE - WPA2, AuthMode(%d)=%s, WepStatus(%d)=%s, GroupWepStatus(%d)=%s\n\n", 
+ 									pEntry->AuthMode, GetAuthMode(pEntry->AuthMode), 
+ 									pEntry->WepStatus, GetEncryptType(pEntry->WepStatus), 
+ 									group_cipher, 
+ 									GetEncryptType(group_cipher)));
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT
++	NdisZeroMemory(&(pAd->ApCfg.MBSSID[0].StaMsgInfo), sizeof(NDIS_AP_802_11_STA_DEV_MSG));
++	pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgType = MSG_TYPE_ONLINE;
++	pAd->ApCfg.MBSSID[0].StaMsgInfo.AccessType = ACCESS_TYPE_WIRELESS;
++
++	NdisZeroMemory(TmpStrMac, MAC_STR_LEN);
++	mac2Str(pEntry->Addr, TmpStrMac, 1);
++	NdisCopyMemory(pAd->ApCfg.MBSSID[0].StaMsgInfo.ClientMac, TmpStrMac, MAC_STR_LEN);
++	pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgBandType = BAND_TYPE_2_4_G;
++	NdisCopyMemory(pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgSSID, pAd->ApCfg.MBSSID[0].Ssid, MAX_LEN_OF_SSID);
++
++	
++	NdisZeroMemory(&StaNlMsgInfo, sizeof(NDIS_AP_802_11_NETLINK_MSG_INFO));
++	StaNlMsgInfo.MsgType = NL_MSG_DEV_ONLINE_STATUS;
++	NdisCopyMemory(&(StaNlMsgInfo.Body), 
++			(UCHAR *)&(pAd->ApCfg.MBSSID[0].StaMsgInfo), 
++			sizeof(NDIS_AP_802_11_STA_DEV_MSG));
++	StaNlMsgInfo.MsgLen = sizeof(NDIS_AP_802_11_STA_DEV_MSG)
++	                       +  sizeof(INT) + sizeof(NETLINK_MSG_TYPE);
++	
++	DBGPRINT(RT_DEBUG_OFF, ("-------->%s, %d!!!\n", __func__, __LINE__));
++	pb_nl_send_msg(&StaNlMsgInfo, StaNlMsgInfo.MsgLen);
++#endif									
+ 		}
+ 		else
+ 		{
+@@ -2753,7 +2859,18 @@ VOID PeerGroupMsg2Action(
+     BOOLEAN         	Cancelled;
+ 	PEAPOL_PACKET       pMsg2;	
+ 	UCHAR				group_cipher = Ndis802_11WEPDisabled;	
+-
++#ifdef	DEV_MSG_EVENT_SEND_SUPPORT 
++	NDIS_AP_802_11_NETLINK_MSG_INFO StaNlMsgInfo;   
++	extern int mac2Str (unsigned char *mac, unsigned char *str, int bColon);
++	UCHAR TmpStrMac[MAC_STR_LEN] = {0};
++	extern int pb_nl_send_msg(void *msg, int msg_size);
++#endif
++#ifdef	TPSK_SUPPORT
++	unsigned long irqFlags;
++	int idx;
++	MULTISSID_STRUCT *pMbss;
++	pMbss = &pAd->ApCfg.MBSSID[pEntry->apidx];
++#endif
+ 	DBGPRINT(RT_DEBUG_TRACE, ("===> PeerGroupMsg2Action \n"));
+ 
+     if ((!pEntry) || !IS_ENTRY_CLIENT(pEntry))
+@@ -2799,12 +2916,50 @@ VOID PeerGroupMsg2Action(
+ 		if ((pEntry->AuthMode == Ndis802_11AuthModeWPA2) || (pEntry->AuthMode == Ndis802_11AuthModeWPA2PSK))
+ 		{
+ 			/* send wireless event - for set key done WPA2*/
++#ifdef TPSK_SUPPORT
++			RTMP_INT_LOCK(&(pMbss->TPMKTable.TPMKTableLock), irqFlags);
++			RTMPFillMacOfTPMKEntry(pAd, pEntry);			/* del the old mac entry */
++			if ( (idx = RTMPSearchTPMKEntryMatchStaMac(pAd, pEntry->apidx, pEntry->Addr)) != -1)
++				{
++					if (idx != pEntry->TPMK_EntryIdx)
++						RTMPDeleteTPMKEntry(pAd, pEntry->apidx, idx);
++				}
++			RTMP_INT_UNLOCK(&(pMbss->TPMKTable.TPMKTableLock), irqFlags);
++			RTMP_INT_LOCK(&(pMbss->StaPMKIdxTable.StaPMKIdxTableLock), irqFlags);
++			if ( (idx = RTMPSearchStaPMKIdxEntry(pAd, pEntry->apidx, pEntry->Addr)) != -1)
++				{
++					RTMPDeleteStaPMKIdxEntry(pAd, pEntry->apidx, idx);
++				}
++			RTMP_INT_UNLOCK(&(pMbss->StaPMKIdxTable.StaPMKIdxTableLock), irqFlags);
++						/* SEND EVENT*/
++#endif			
++			
+ 				RTMPSendWirelessEvent(pAd, IW_SET_KEY_DONE_WPA2_EVENT_FLAG, pEntry->Addr, pEntry->apidx, 0); 
+ 
+ 			DBGPRINT(RT_DEBUG_OFF, ("AP SETKEYS DONE - WPA2, AuthMode(%d)=%s, WepStatus(%d)=%s, GroupWepStatus(%d)=%s\n\n", 
+ 										pEntry->AuthMode, GetAuthMode(pEntry->AuthMode), 
+ 										pEntry->WepStatus, GetEncryptType(pEntry->WepStatus), 
+ 										group_cipher, GetEncryptType(group_cipher)));
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT
++		NdisZeroMemory(&(pAd->ApCfg.MBSSID[0].StaMsgInfo), sizeof(NDIS_AP_802_11_STA_DEV_MSG));
++		pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgType = MSG_TYPE_ONLINE;
++		pAd->ApCfg.MBSSID[0].StaMsgInfo.AccessType = ACCESS_TYPE_WIRELESS;
++		NdisZeroMemory(TmpStrMac, MAC_STR_LEN);
++		mac2Str(pEntry->Addr, TmpStrMac, 1);
++		NdisCopyMemory(pAd->ApCfg.MBSSID[0].StaMsgInfo.ClientMac, TmpStrMac, MAC_STR_LEN);
++		pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgBandType = BAND_TYPE_2_4_G;
++		NdisCopyMemory(pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgSSID, pAd->ApCfg.MBSSID[0].Ssid, MAX_LEN_OF_SSID);
++		
++		NdisZeroMemory(&StaNlMsgInfo, sizeof(NDIS_AP_802_11_NETLINK_MSG_INFO));
++		StaNlMsgInfo.MsgType = NL_MSG_DEV_ONLINE_STATUS;
++		NdisCopyMemory(&(StaNlMsgInfo.Body), 
++			(UCHAR *)&(pAd->ApCfg.MBSSID[0].StaMsgInfo), 
++			sizeof(NDIS_AP_802_11_STA_DEV_MSG));
++		StaNlMsgInfo.MsgLen = sizeof(NDIS_AP_802_11_STA_DEV_MSG) + sizeof(INT) + sizeof(NETLINK_MSG_TYPE);
++		
++		DBGPRINT(RT_DEBUG_OFF, ("-------->%s, %d!!!\n", __func__, __LINE__));
++		pb_nl_send_msg(&StaNlMsgInfo, StaNlMsgInfo.MsgLen);
++#endif										
+ 		}
+ 		else
+ 		{
+@@ -2824,6 +2979,26 @@ VOID PeerGroupMsg2Action(
+ #endif /* MWDS */
+ 
+ 			/* send wireless event - for set key done WPA*/
++#ifdef TPSK_SUPPORT
++			RTMP_INT_LOCK(&(pMbss->TPMKTable.TPMKTableLock), irqFlags);
++			RTMPFillMacOfTPMKEntry(pAd, pEntry);
++
++			/* del the old mac entry */
++			if ( (idx = RTMPSearchTPMKEntryMatchStaMac(pAd, pEntry->apidx, pEntry->Addr)) != -1)
++				{
++					if (idx != pEntry->TPMK_EntryIdx)
++						RTMPDeleteTPMKEntry(pAd, pEntry->apidx, idx);
++				}
++			RTMP_INT_UNLOCK(&(pMbss->TPMKTable.TPMKTableLock), irqFlags);
++			RTMP_INT_LOCK(&(pMbss->StaPMKIdxTable.StaPMKIdxTableLock), irqFlags);
++			if ( (idx = RTMPSearchStaPMKIdxEntry(pAd, pEntry->apidx, pEntry->Addr)) != -1)
++				{
++					RTMPDeleteStaPMKIdxEntry(pAd, pEntry->apidx, idx);
++				}
++			RTMP_INT_UNLOCK(&(pMbss->StaPMKIdxTable.StaPMKIdxTableLock), irqFlags);
++	
++			/* SEND EVENT*/
++#endif			
+ 				RTMPSendWirelessEvent(pAd, IW_SET_KEY_DONE_WPA1_EVENT_FLAG, pEntry->Addr, pEntry->apidx, 0); 
+ 
+ #ifdef SMART_MESH_MONITOR
+@@ -2843,6 +3018,25 @@ VOID PeerGroupMsg2Action(
+ 										pEntry->AuthMode, GetAuthMode(pEntry->AuthMode), 
+ 										pEntry->WepStatus, GetEncryptType(pEntry->WepStatus), 
+ 										group_cipher, GetEncryptType(group_cipher)));
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT
++			NdisZeroMemory(&(pAd->ApCfg.MBSSID[0].StaMsgInfo), sizeof(NDIS_AP_802_11_STA_DEV_MSG));
++			pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgType = MSG_TYPE_ONLINE;
++			pAd->ApCfg.MBSSID[0].StaMsgInfo.AccessType = ACCESS_TYPE_WIRELESS;
++			NdisZeroMemory(TmpStrMac, MAC_STR_LEN);
++			mac2Str(pEntry->Addr, TmpStrMac, 1);
++			NdisCopyMemory(pAd->ApCfg.MBSSID[0].StaMsgInfo.ClientMac, TmpStrMac, MAC_STR_LEN);
++			pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgBandType = BAND_TYPE_2_4_G;
++			NdisCopyMemory(pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgSSID, pAd->ApCfg.MBSSID[0].Ssid, MAX_LEN_OF_SSID);
++			
++			NdisZeroMemory(&StaNlMsgInfo, sizeof(NDIS_AP_802_11_NETLINK_MSG_INFO));
++			StaNlMsgInfo.MsgType = NL_MSG_DEV_ONLINE_STATUS;
++			NdisCopyMemory(&(StaNlMsgInfo.Body), 
++				(UCHAR *)&(pAd->ApCfg.MBSSID[0].StaMsgInfo), 
++				sizeof(NDIS_AP_802_11_STA_DEV_MSG));
++			StaNlMsgInfo.MsgLen = sizeof(NDIS_AP_802_11_STA_DEV_MSG) + sizeof(INT) + sizeof(NETLINK_MSG_TYPE);
++			 DBGPRINT(RT_DEBUG_OFF, ("-------->%s, %d!!!\n", __func__, __LINE__));
++			 pb_nl_send_msg(&StaNlMsgInfo, StaNlMsgInfo.MsgLen);
++#endif										
+ 		}	
+     }while(FALSE);  
+ }
+diff --git a/mt76x2/common/rtmp_init.c b/mt76x2/common/rtmp_init.c
+index d88cabd..a8b945a 100644
+--- a/mt76x2/common/rtmp_init.c
++++ b/mt76x2/common/rtmp_init.c
+@@ -2977,6 +2977,12 @@ VOID UserCfgExit(RTMP_ADAPTER *pAd)
+ #endif /* BAND_STEERING */
+ 	}
+ #endif /* CONFIG_AP_SUPPORT */
++
++	/* Add by Dragon, 20150413 */
++#ifdef TPSK_SUPPORT
++	NdisFreeSpinLock(&(pAd->ApCfg.MBSSID[j].TPMKTable.TPMKTableLock));
++	NdisFreeSpinLock(&(pAd->ApCfg.MBSSID[j].StaPMKIdxTable.StaPMKIdxTableLock));
++#endif
+ }
+ 
+ 
+@@ -3616,7 +3622,64 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
+ 			mbss->radius_srv_num = 0;
+ 			mbss->NasIdLen = 0;
+ #endif /* DOT1X_SUPPORT */
++			/* Add by Dragon, 20150413 */
++//#define TPMK_TEST
++#ifdef TPSK_SUPPORT
++
++#define TPMK_ENTRY_PERIOD (30 * OS_HZ)
++#define STA_PMKIDX_ENTRY_PERIOD (5 * 60 * OS_HZ)
++
++			pAd->ApCfg.MBSSID[j].TPMKEntryPeriod = TPMK_ENTRY_PERIOD;
++			NdisZeroMemory(&pAd->ApCfg.MBSSID[j].TPMKTable.BSSIDTPMKInfo, sizeof(AP_BSSID_TPMK_INFO) * MAX_TPMK_COUNT);
++			NdisAllocateSpinLock(pAd, &(pAd->ApCfg.MBSSID[j].TPMKTable.TPMKTableLock));
++
++#ifdef TPMK_TEST
++			char buf[] = "0987654321";
++			PSTRING 	tmpbuf = buf;
++			ULONG		len = strlen(tmpbuf);
++			int 		ret = 0;
++			unsigned char wirelessMac[6]={0x08,0x57,0x00,0xBD,0x4B,0xA1};
++			unsigned char zero1[6]={0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
++
++			char static_021[PMK_LEN] = {0x9b,0x68,0x34,0xc8,0x20,0x3f,0xa8,0x12,0x30,0xd9,0x63,0x9f,0xe4,0x6e,0x1e,0xd3,0x22,0x9b,0xc7,0xe6,0xa2,0x2d,0x6b,0x29,0x75,0x17,0xb3,0xf5,0xb2,0x43,0xfd,0xd7};
++			char static_128[PMK_LEN] = {0x61,0x8e,0xeb,0x9e,0x20,0x62,0xba,0x27,0x7a,0xdc,0xa4,0x35,0x2f,0xbd,0x3f,0xf5,0xc5,0x3b,0xdc,0x2f,0x94,0x17,0xe2,0xb0,0x0a,0xbc,0x58,0x23,0xdb,0xa7,0xb9,0x59};
++			char static_120[PMK_LEN] = {0xf1,0xe3,0x06,0x6a,0x18,0xf5,0xf9,0xca,0x33,0x71,0x9d,0x88,0x0a,0x96,0x3a,0x7e,0x73,0x9a,0x3a,0xf9,0xfa,0xd3,0xbf,0x37,0x91,0x22,0x19,0x7d,0x76,0x78,0x1d,0x29};
++
++			int i = 0;
++			UCHAR		PMKBuf[PMK_LEN];
++
++			NdisZeroMemory(PMKBuf, PMK_LEN);
++
++			DBGPRINT(RT_DEBUG_OFF, ("-------------->I/F(ra%d) TPMK WPAPSK_KEY=%s\n", i, tmpbuf));
++			#if 0
++			//ret = RT_CfgSetWPAPSKKey(pAd, tmpbuf, len, (PUCHAR)pAd->ApCfg.MBSSID[i].Ssid, pAd->ApCfg.MBSSID[i].SsidLen, pAd->ApCfg.MBSSID[i].PMK);
++			ret = RT_CfgSetWPAPSKKey(pAd, (PSTRING)tmpbuf, len,(PUCHAR)pAd->ApCfg.MBSSID[i].Ssid, pAd->ApCfg.MBSSID[i].SsidLen, (PUCHAR)PMKBuf);
++			
++			
++			if (ret == FALSE)
++			{
++				DBGPRINT(RT_DEBUG_OFF, ("-------------->RT_CfgSetWPAPSKKey ERROR \n"));
++				return ;
++			}
++			#endif
++			NdisCopyMemory(PMKBuf,static_021,32);
++
++			RTMPAddTPMKEntry(pAd, 0, wirelessMac, PMKBuf, tmpbuf);
++			RTMPAddTPMKEntry(pAd, 1, wirelessMac, PMKBuf, tmpbuf);
+ 
++			RTMPAddTPMKEntry(pAd, 0, zero1, static_128, tmpbuf); /*12345678 */
++			RTMPAddTPMKEntry(pAd, 1, zero1, static_128, tmpbuf); /*12345678 */
++
++			RTMPAddTPMKEntry(pAd, 0, zero1, static_120, tmpbuf); /* 1234567890 */
++			RTMPAddTPMKEntry(pAd, 1, zero1, static_120, tmpbuf); /* 1234567890 */
++ 
++			DBGPRINT(RT_DEBUG_OFF, ("-------------->RTMPAddTPMKEntry---- \n"));
++#endif
++
++			pAd->ApCfg.MBSSID[j].StaPMKIdxEntryPeriod = STA_PMKIDX_ENTRY_PERIOD;
++			NdisZeroMemory(&pAd->ApCfg.MBSSID[j].StaPMKIdxTable.StaPMKIdxInfo, sizeof(AP_BSSID_StaPMKIdx_INFO) * MAX_StaPMKIdx_COUNT);
++			NdisAllocateSpinLock(pAd, &(pAd->ApCfg.MBSSID[j].StaPMKIdxTable.StaPMKIdxTableLock));
++#endif
+ 			/* VLAN related */
+ 			mbss->wdev.VLAN_VID = 0;
+ 
+@@ -4129,6 +4192,18 @@ VOID UserCfgInit(RTMP_ADAPTER *pAd)
+     pAd->CommonCfg.ManualTxopUpBound = 15; // Ratio
+     pAd->CommonCfg.ManualTxopLowBound = 5; // Ratio
+ 
++#ifdef VEDOR_IE_CONTROL_SUPPORT
++	NdisZeroMemory(pAd->CustomizationIE, CUSTOMIZATION_IE_MAX_LEN); 
++#endif
++
++#ifdef VEDOR_IE_FILTER_SUPPORT
++	NdisZeroMemory(pAd->VedorIEOUI, VEDOR_IE_OUI_LEN); 
++#endif
++
++#ifdef SNIFFER_STA_PROBE_SUPPORT
++	pAd->SnifferProbeEnable = 0;
++#endif	
++	
+ 	DBGPRINT(RT_DEBUG_TRACE, ("<-- UserCfgInit\n"));
+ }
+ 
+diff --git a/mt76x2/include/ap_cfg.h b/mt76x2/include/ap_cfg.h
+index 3956fb5..6daee08 100644
+--- a/mt76x2/include/ap_cfg.h
++++ b/mt76x2/include/ap_cfg.h
+@@ -58,6 +58,59 @@ VOID RTMPIoctlGetMacTable(
+ 	IN PRTMP_ADAPTER pAd, 
+ 	IN RTMP_IOCTL_INPUT_STRUCT *wrq);
+ 
++#ifdef TPSK_SUPPORT
++VOID RTMPIoctlSetTPMKTable(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq);
++
++VOID RTMPIoctlGetTPMKTable(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq);
++
++VOID RTMPIoctlDelTPMKEntry(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq);
++ 
++VOID RTMPIoctlDelTPMKTable(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq);
++
++VOID RTMPIoctlShowTPMKTable(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq);
++
++#endif
++
++#ifdef VEDOR_IE_CONTROL_SUPPORT
++VOID RTMPIoctlCuteromIESet(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq);
++
++VOID RTMPIoctlCuteromIEClear(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq);
++#endif
++
++#ifdef VEDOR_IE_FILTER_SUPPORT
++VOID RTMPIoctlVedorIEFilter(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq);
++
++VOID RTMPIoctlVdoerIEClear(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq);
++#endif
++
++#ifdef SNIFFER_STA_PROBE_SUPPORT
++VOID RTMPIoctlSnifferSTAProbeEnable(
++   IN PRTMP_ADAPTER pAd, 
++   IN RTMP_IOCTL_INPUT_STRUCT *wrq);
++
++VOID RTMPIoctlSnifferSTAProbeDisable(
++	IN PRTMP_ADAPTER pAd, 
++	IN RTMP_IOCTL_INPUT_STRUCT *wrq);
++#endif	
++	
+ 
+ VOID RTMPAPIoctlE2PROM(
+     IN  PRTMP_ADAPTER   pAdapter,
+diff --git a/mt76x2/include/mlme.h b/mt76x2/include/mlme.h
+index 830b657..6fc7452 100644
+--- a/mt76x2/include/mlme.h
++++ b/mt76x2/include/mlme.h
+@@ -1055,6 +1055,7 @@ typedef struct _MLME_QUEUE_ELEM {
+ 	ULONG Machine;
+ 	ULONG MsgType;
+ 	ULONG MsgLen;
++	struct raw_rssi_info rssi_info;
+ 	LARGE_INTEGER TimeStamp;
+ 	UCHAR Rssi0;
+ 	UCHAR Rssi1;
+diff --git a/mt76x2/include/oid.h b/mt76x2/include/oid.h
+index a945487..862b076 100644
+--- a/mt76x2/include/oid.h
++++ b/mt76x2/include/oid.h
+@@ -1006,6 +1006,144 @@ typedef struct _NDIS_AP_802_11_PMKID {
+ } NDIS_AP_802_11_PMKID, *PNDIS_AP_802_11_PMKID;
+ #endif /* CONFIG_AP_SUPPORT */
+ 
++
++
++/* Add by Dragon, 20150413 */
++#ifdef TPSK_SUPPORT
++typedef struct _AP_BSSID_TPMK_INFO {
++	NDIS_802_11_MAC_ADDRESS MAC; //MAC 忪牡??忌忱
++	UCHAR PassWd[64];
++	UCHAR PMK[32];  //PMK
++	ULONG Validtime;//shiner add
++	ULONG duration;//shiner add	
++	ULONG RefreshTime; // jiffies
++	BOOLEAN Valid; // PMK我沃?忌忱?我抉DD忌抆忌抓?我?2?我抗我沃?我沃?忌忱?忌扳??我?
++	//INT Idx; /* node the local */	
++} AP_BSSID_TPMK_INFO, *PAP_BSSID_TPMK_INFO;
++
++#define MAX_TPMK_COUNT		64
++#define PSK_PAWORD_LEN      64
++#define PMK_PWORD_LEN       32
++#define MAC_LEN_6           6
++
++typedef struct _NDIS_AP_802_11_TPMK {
++	AP_BSSID_TPMK_INFO BSSIDTPMKInfo[MAX_TPMK_COUNT];
++	NDIS_SPIN_LOCK  TPMKTableLock;
++} NDIS_AP_802_11_TPMK, *PNDIS_AP_802_11_TPMK;
++
++typedef struct _AP_BSSID_StaPMKIdx_INFO {
++	NDIS_802_11_MAC_ADDRESS MAC; //MAC 忪牡??忌忱
++	UCHAR StaPMKIdx;  //PMK Idx
++	ULONG RefreshTime; // jiffies
++	BOOLEAN Valid;
++} AP_BSSID_StaPMKIdx_INFO, *PAP_BSSID_StaPMKIdx_INFO;
++
++#define MAX_StaPMKIdx_COUNT		64
++
++typedef struct _NDIS_AP_802_11_StaPMKIdx {
++	AP_BSSID_StaPMKIdx_INFO StaPMKIdxInfo[MAX_StaPMKIdx_COUNT];
++	NDIS_SPIN_LOCK StaPMKIdxTableLock;
++} NDIS_AP_802_11_StaPMKIdx, *PNDIS_AP_802_11_StaPMKIdx;
++
++#endif /* end add by Dragon */
++
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT
++#define PROBE_SSID_MAX_LEN 32
++#define MAC_STR_LEN         18
++#define CUSTOMIZATION_IE_MAX_LEN    100
++
++typedef enum
++{
++    BAND_TYPE_AUTO = 0,
++    BAND_TYPE_5_8_G,
++    BAND_TYPE_2_4_G,
++    BAND_TYPE_ALL
++}BAND_TYPE;
++
++struct STA_INFO
++{
++    INT Rssi;
++    BAND_TYPE BandType;
++    char SSID[PROBE_SSID_MAX_LEN];
++};
++
++typedef enum
++{
++    ACCESS_TYPE_WIRE = 1,
++    ACCESS_TYPE_WIRELESS  
++}ACCESS_TYPE;
++
++typedef enum
++{
++    MSG_TYPE_ONLINE = 1,
++    MSG_TYPE_OFFLINE,
++    MSG_TYPE_PROBE,
++    MSG_TYPE_NEW_MAC,
++    MSG_TYPE_REMOVE_MAC
++}NETWORK_STATUS_MSG;
++
++typedef struct _NDIS_AP_802_11_STA_DEV_MSG
++{
++    NETWORK_STATUS_MSG MsgType;           // 1:online 2:offline 3:probe 4:mac increase 5:mac decrease
++    ACCESS_TYPE AccessType;      // 1:wire;   2:wireless
++    char ClientMac[MAC_STR_LEN];
++
++    union
++    {
++        int Port;
++        struct STA_INFO Info;
++    }u;
++
++#define MsgRssi u.Info.Rssi
++#define MsgBandType u.Info.BandType
++#define MsgSSID u.Info.SSID
++}NDIS_AP_802_11_STA_DEV_MSG, PNDIS_AP_802_11_STA_DEV_MSG;
++
++typedef struct _NDIS_AP_802_11_STA_IE_MSG
++{
++    char ClientMac[MAC_STR_LEN];
++    char IePkt[CUSTOMIZATION_IE_MAX_LEN];
++}NDIS_AP_802_11_STA_IE_MSG, PNDIS_AP_802_11_STA_IE_MSG; 
++
++typedef struct _NDIS_AP_802_11_STA_TPSK_MSG
++{
++    char Tpsk[PSK_PAWORD_LEN];           
++    char Mac[MAC_STR_LEN];
++    int Duration;
++} NDIS_AP_802_11_STA_TPSK_MSG, PNDIS_AP_802_11_STA_TPSK_MSG;
++
++typedef enum
++{
++    /* kernel????忌扳|我忱我抗???忌投*/
++    ASEC_MSG_REPLY_ATTACK_QUERY = 1,     // 1忍忱?忌房2我忪?忌快?我技我抉|
++    ASEC_MSG_ADD_PHISHING_WHITELIST,   // 我忪我我??忪牡?我抉?我抗???忌忱??我沃忌批忌拂??忪牡忍忱
++    ASEC_MSG_FLUSH_ACL_TABLE,                 // ????忌忱??我沃????1??我?忌弩我抗
++    ASEC_MSG_FLUSH_ACCE_CACHE,              // ??3ydomaino我抗dns忪牡??忌忱?o忌扳????忌投
++    ASEC_MSG_SET_SWITCH_STATUS,            // 我沃1?我狂忌批忌投我忱?忌批2我我?2??t???忌投
++    ASEC_MSG_SET_REDIRECT_URL,               // 我忪我我??http???忌戒?我?URL
++
++    /* user????忌扳|我忱我抗???忌投*/
++    ASEC_MSG_REQUEST_ATTACK_QUERY,     // 1忍忱?忌房2我忪?忌快???我抉
++    ASEC_MSG_REPORT_ATTACK_EVENT,        // 忌弩忌戒??1忍忱?忌房我沃??t
++    ASEC_MSG_SET_DEBUG_LEVEL,                // 我抗?2??我?o?DEBUG_LEVEL
++
++    /* wireless tpsk & ie 忌扳|我忱我抗???忌投 */
++    NL_MSG_TPSK_UPGRADE,                         //??我志?我忪我我忌弩?TPSK1?我志a3我忪1|
++    NL_MSG_IE_REPORT,                                //ali??我抉DIE我忪?忌弩忌戒
++
++    /* dev online status 忌扳|我忱我抗???忌投 */
++    NL_MSG_DEV_ONLINE_STATUS                //我忪我我忌弩??我???忌拂忌扳我技????忌投
++}NETLINK_MSG_TYPE;
++
++typedef struct
++{
++    NETLINK_MSG_TYPE MsgType;
++    INT MsgLen;
++    UCHAR Body[200];   //the body is line 109
++}NDIS_AP_802_11_NETLINK_MSG_INFO, PNDIS_AP_802_11_NETLINK_MSG_INFO;
++#endif
++
++
+ typedef struct _NDIS_802_11_AUTHENTICATION_ENCRYPTION {
+ 	NDIS_802_11_AUTHENTICATION_MODE AuthModeSupported;
+ 	NDIS_802_11_ENCRYPTION_STATUS EncryptStatusSupported;
+@@ -1611,6 +1749,19 @@ typedef struct _FT_CONFIG_INFO {
+ #define RT_OID_IWSC_SMPBC_ENROLLEE_COUNT	0x0902
+ #endif // IWSC_SUPPORT //
+ 
++#define OID_SET_TPMK_TABLE	                0x0980
++#define OID_GET_TPMK_TABLE	                0x0981
++#define OID_DEL_TPMK_ENTRY	                0x0982
++#define OID_DEL_TPMK_TABLE	                0x0983
++#define OID_SHOW_TPMK_TABLE	            	0x0984
++#define OID_CUSTEROM_IE_SET	           		0x0985
++#define OID_CUSTEROM_IE_CLEAR	            0x0986
++#define OID_VDOER_IE_FILTER_SET           	0x0987
++#define OID_VDOER_IE_FILTER_CLEAR          	0x0988
++#define OID_SNIFFER_STA_PROBE_ENABLE       	0x0989
++#define OID_SNIFFER_STA_PROBE_DISABLE      	0x0990
++
++
+ #ifdef AIRPLAY_SUPPORT
+ #define OID_AIRPLAY_IE_INSERT                   (0x0872)
+ #define OID_AIRPLAY_ENABLE                      (0x0873)
+diff --git a/mt76x2/include/os/rt_os.h b/mt76x2/include/os/rt_os.h
+index cc6189a..ad515a3 100644
+--- a/mt76x2/include/os/rt_os.h
++++ b/mt76x2/include/os/rt_os.h
+@@ -70,6 +70,18 @@
+ 
+ #define RTPRIV_IOCTL_SHOW							(SIOCIWFIRSTPRIV + 0x11)
+ 
++#define RTPRIV_IOCTL_SET_TPMK_TABLE	                (SIOCIWFIRSTPRIV + 0x1a)
++#define RTPRIV_IOCTL_GET_TPMK_TABLE	                (SIOCIWFIRSTPRIV + 0x1b)
++#define RTPRIV_IOCTL_DEL_TPMK_ENTRY	                (SIOCIWFIRSTPRIV + 0x1c)
++#define RTPRIV_IOCTL_DEL_TPMK_TABLE	                (SIOCIWFIRSTPRIV + 0x1d)
++#define RTPRIV_IOCTL_SHOW_TPMK_TABLE	            (SIOCIWFIRSTPRIV + 0x10)
++#define RTPRIV_IOCTL_CUSTEROM_IE_SET	            (SIOCIWFIRSTPRIV + 0x17)
++#define RTPRIV_IOCTL_CUSTEROM_IE_CLEAR	            (SIOCIWFIRSTPRIV + 0x18)
++#define RTPRIV_IOCTL_VDOER_IE_FILTER_SET            (SIOCIWFIRSTPRIV + 0x15)
++#define RTPRIV_IOCTL_VDOER_IE_FILTER_CLEAR          (SIOCIWFIRSTPRIV + 0x1e)
++#define RTPRIV_IOCTL_SNIFFER_STA_PROBE_ENABLE       (SIOCIWFIRSTPRIV + 0x06)
++#define RTPRIV_IOCTL_SNIFFER_STA_PROBE_DISABLE      (SIOCIWFIRSTPRIV + 0x04)
++ 
+ 
+ #ifdef WSC_STA_SUPPORT
+ #define RTPRIV_IOCTL_SET_WSC_PROFILE_U32_ITEM       (SIOCIWFIRSTPRIV + 0x14)
+@@ -102,18 +114,29 @@
+ #define RTPRIV_IOCTL_ADD_WPA_KEY                    (SIOCIWFIRSTPRIV + 0x0E)
+ #define RTPRIV_IOCTL_GET_MAC_TABLE					(SIOCIWFIRSTPRIV + 0x0F)
+ #define RTPRIV_IOCTL_GET_MAC_TABLE_STRUCT	(SIOCIWFIRSTPRIV + 0x1F)	/* modified by Red@Ralink, 2009/09/30 */
+-#define RTPRIV_IOCTL_STATIC_WEP_COPY                (SIOCIWFIRSTPRIV + 0x10)
++#define RTPRIV_IOCTL_STATIC_WEP_COPY                (SIOCIWFIRSTPRIV + 0x21)
+ 
+ #define RTPRIV_IOCTL_SHOW							(SIOCIWFIRSTPRIV + 0x11)
+ #define RTPRIV_IOCTL_WSC_PROFILE                    (SIOCIWFIRSTPRIV + 0x12)
+ #define RTPRIV_IOCTL_QUERY_BATABLE                  (SIOCIWFIRSTPRIV + 0x16)
+-#define RTPRIV_IOCTL_GET_APCLI_CONNSTATUS			(SIOCIWFIRSTPRIV + 0x17)
++#define RTPRIV_IOCTL_GET_APCLI_CONNSTATUS			(SIOCIWFIRSTPRIV + 0x25)
+ #if defined(INF_AR9)  || defined(BB_SOC)
+ #error Sorry! INF_AR9 or BB_SOC should not be defined due to IOCTL conflicts.
+ #define RTPRIV_IOCTL_GET_AR9_SHOW   (SIOCIWFIRSTPRIV + 0x17)
+ #endif/* INF_AR9 */
+-#define RTPRIV_IOCTL_SET_WSCOOB	(SIOCIWFIRSTPRIV + 0x19)
+-#define RTPRIV_IOCTL_WSC_CALLBACK	(SIOCIWFIRSTPRIV + 0x1A)
++#define RTPRIV_IOCTL_SET_WSCOOB		(SIOCIWFIRSTPRIV + 0x19)
++#define RTPRIV_IOCTL_WSC_CALLBACK	(SIOCIWFIRSTPRIV + 0x20)
++#define RTPRIV_IOCTL_SET_TPMK_TABLE	    (SIOCIWFIRSTPRIV + 0x1A)
++#define RTPRIV_IOCTL_GET_TPMK_TABLE	    (SIOCIWFIRSTPRIV + 0x1B)
++#define RTPRIV_IOCTL_DEL_TPMK_ENTRY	    (SIOCIWFIRSTPRIV + 0x1C)
++#define RTPRIV_IOCTL_DEL_TPMK_TABLE	    (SIOCIWFIRSTPRIV + 0x1D)
++#define RTPRIV_IOCTL_SHOW_TPMK_TABLE	(SIOCIWFIRSTPRIV + 0x10)
++#define RTPRIV_IOCTL_CUSTEROM_IE_SET	            (SIOCIWFIRSTPRIV + 0x17)
++#define RTPRIV_IOCTL_CUSTEROM_IE_CLEAR	            (SIOCIWFIRSTPRIV + 0x18)
++#define RTPRIV_IOCTL_VDOER_IE_FILTER_SET            (SIOCIWFIRSTPRIV + 0x15)
++#define RTPRIV_IOCTL_VDOER_IE_FILTER_CLEAR          (SIOCIWFIRSTPRIV + 0x1E)
++#define RTPRIV_IOCTL_SNIFFER_STA_PROBE_ENABLE       (SIOCIWFIRSTPRIV + 0x06)
++#define RTPRIV_IOCTL_SNIFFER_STA_PROBE_DISABLE      (SIOCIWFIRSTPRIV + 0x04)
+ #endif /* CONFIG_AP_SUPPORT */
+ 
+ #endif /* _RT_OS_H_ */
+diff --git a/mt76x2/include/rtmp.h b/mt76x2/include/rtmp.h
+index 1f60c95..e02bb1d 100644
+--- a/mt76x2/include/rtmp.h
++++ b/mt76x2/include/rtmp.h
+@@ -229,6 +229,14 @@ extern MultiplicationShiftFactor RateMultiplicationShiftFactor[224];
+ 
+ #define MAX_EEPROM_BUFFER_SIZE	1024
+ 
++#ifdef VEDOR_IE_CONTROL_SUPPORT
++#define CUSTOMIZATION_IE_MAX_LEN 100
++#endif
++
++#ifdef VEDOR_IE_FILTER_SUPPORT
++#define VEDOR_IE_OUI_LEN    3
++#endif
++
+ extern unsigned char CISCO_OUI[];
+ extern UCHAR BaSizeArray[4];
+ 
+@@ -1721,6 +1729,22 @@ typedef struct _MULTISSID_STRUCT {
+ 	/* For PMK Cache using, AP ONLY */
+ 	ULONG PMKCachePeriod;	/* unit : jiffies */
+ 	NDIS_AP_802_11_PMKID PMKIDCache;
++ 
++	/* Add by Dragon, 20150413 */
++#ifdef TPSK_SUPPORT
++	/* For TPMK Cache using */
++	ULONG TPMKEntryPeriod;	/* unit : jiffies */
++	NDIS_AP_802_11_TPMK TPMKTable;
++
++	/* For Sta PMK Idx table using */
++	ULONG StaPMKIdxEntryPeriod;	/* unit : jiffies */
++	NDIS_AP_802_11_StaPMKIdx StaPMKIdxTable;
++#endif
++
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT
++    NDIS_AP_802_11_STA_DEV_MSG StaMsgInfo;
++#endif		
++	
+ 
+ #ifdef DOT1X_SUPPORT
+ 	BOOLEAN PreAuth;
+@@ -3043,6 +3067,9 @@ typedef struct _MAC_TABLE_ENTRY {
+ 	BOOLEAN IsReassocSta;	/* Indicate whether this is a reassociation procedure */
+ 	ULONG NoDataIdleCount;
+ 	ULONG AssocDeadLine;
++#ifdef TPSK_SUPPORT
++	INT	TPMK_EntryIdx;
++#endif
+ 	UINT16 StationKeepAliveCount;	/* unit: second */
+ 	USHORT CapabilityInfo;
+ 	UCHAR PsMode;
+@@ -5579,6 +5606,18 @@ MONITOR_STRUCT monitor_ctrl;
+ 	BOOLEAN bSingleSkuDebug;
+ #endif /* SINGLE_SKU_V2 */
+ 
++#ifdef VEDOR_IE_CONTROL_SUPPORT
++    UCHAR CustomizationIE[CUSTOMIZATION_IE_MAX_LEN];
++#endif
++
++#ifdef VEDOR_IE_FILTER_SUPPORT
++	UCHAR VedorIEOUI[VEDOR_IE_OUI_LEN];
++#endif
++
++#ifdef SNIFFER_STA_PROBE_SUPPORT
++	BOOLEAN SnifferProbeEnable;
++#endif
++
+ #ifdef AIRPLAY_SUPPORT
+ /*
+ * Value:
+@@ -7837,6 +7876,14 @@ BOOLEAN PeerProbeReqSanity(
+     IN ULONG MsgLen,
+     OUT PEER_PROBE_REQ_PARAM *Param);
+ 
++#ifdef VEDOR_IE_FILTER_SUPPORT
++BOOLEAN PeerProbeIEFilter(
++    IN VOID *Msg, 
++    IN ULONG MsgLen,
++    IN UCHAR FilterOUI[3],
++    OUT UCHAR *IePkt);
++#endif		
++	
+ /*======================================== */
+ 
+ VOID SyncStateMachineInit(
+@@ -8961,6 +9008,71 @@ VOID RTMPMaintainPMKIDCache(
+ #define RTMPMaintainPMKIDCache(_pAd)
+ #endif /* DOT1X_SUPPORT */
+ 
++
++	/* Add by Dragon, 20150413 */
++#ifdef TPSK_SUPPORT
++VOID RTMPAddTPMKEntry(
++	IN  PRTMP_ADAPTER   		pAd,
++	IN	INT						apidx,
++	IN	PUCHAR				pAddr,
++	IN	UCHAR					*PMK,
++	IN	UCHAR					*pPassword);
++
++VOID RTMPFillMacOfTPMKEntry(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	MAC_TABLE_ENTRY  *pEntry);
++
++
++INT RTMPSearchTPMKEntryMatchStaMac(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN	PUCHAR		pAddr);
++
++INT RTMPSearchTPMKEntryMatchBroadcastMac(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN	PUCHAR		pAddr,
++	IN	INT				fromIdx);
++
++INT RTMPSearchTPMKEntryMatchTPMK(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN	PUCHAR		PMK);
++
++INT RTMPSearchTPMKEntryMatchPwd(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN	PUCHAR		PWD);
++
++VOID RTMPDeleteTPMKEntry(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN  INT				idx);
++
++VOID RTMPMaintainTPMKEntry(
++	IN  PRTMP_ADAPTER   pAd);
++
++VOID RTMPAddStaPMKIdxEntry(
++	IN  PRTMP_ADAPTER   		pAd,
++	IN	INT						apidx,
++	IN	PUCHAR				pAddr,
++	IN	UCHAR	StaPMKIdx);
++
++INT RTMPSearchStaPMKIdxEntry(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN	PUCHAR		pAddr);
++
++VOID RTMPDeleteStaPMKIdxEntry(
++	IN  PRTMP_ADAPTER   pAd,
++	IN	INT				apidx,
++	IN  INT				idx);
++
++VOID RTMPMaintainStaPMKIdxEntry(
++	IN  PRTMP_ADAPTER   pAd);
++#endif
++
++
+ #ifdef RESOURCE_PRE_ALLOC
+ VOID RTMPResetTxRxRingMemory(
+ 	IN  RTMP_ADAPTER   *pAd);
+diff --git a/mt76x2/include/rtmp_cmd.h b/mt76x2/include/rtmp_cmd.h
+index c431e28..50b11cd 100644
+--- a/mt76x2/include/rtmp_cmd.h
++++ b/mt76x2/include/rtmp_cmd.h
+@@ -185,6 +185,30 @@ typedef enum _CMD_RTPRIV_IOCTL_AP {
+ 	CMD_RTPRIV_IOCTL_AP_GET_VHT_BW,
+ 	CMD_RTPRIV_IOCTL_AP_GET_VHT_SHORTGI,
+ 
++    /* TPMK ioctl support */
++#ifdef TPSK_SUPPORT
++	CMD_RTPRIV_IOCTL_SET_TPMK_TABLE,
++	CMD_RTPRIV_IOCTL_GET_TPMK_TABLE,
++	CMD_RTPRIV_IOCTL_DEL_TPMK_ENTRY,
++	CMD_RTPRIV_IOCTL_DEL_TPMK_TABLE,
++	CMD_RTPRIV_IOCTL_SHOW_TPMK_TABLE,
++#endif
++
++#ifdef VEDOR_IE_CONTROL_SUPPORT
++	CMD_RTPRIV_IOCTL_CUSTEROM_IE_SET,
++	CMD_RTPRIV_IOCTL_CUSTEROM_IE_CLEAR,
++#endif
++
++#ifdef VEDOR_IE_FILTER_SUPPORT
++	CMD_RTPRIV_IOCTL_VDOER_IE_FILTER_SET,
++	CMD_RTPRIV_IOCTL_VDOER_IE_FILTER_CLEAR,
++#endif
++
++#ifdef SNIFFER_STA_PROBE_SUPPORT
++	CMD_RTPRIV_IOCTL_SNIFFER_STA_PROBE_ENABLE,
++	CMD_RTPRIV_IOCTL_SNIFFER_STA_PROBE_DISABLE,
++#endif
++
+ 	/* can not exceed 0x5000 */
+ } CMD_RTPRIV_IOCTL_AP;
+ 
+diff --git a/mt76x2/mgmt/mgmt_entrytb.c b/mt76x2/mgmt/mgmt_entrytb.c
+index 5d5cc0b..203ff51 100644
+--- a/mt76x2/mgmt/mgmt_entrytb.c
++++ b/mt76x2/mgmt/mgmt_entrytb.c
+@@ -914,6 +914,16 @@ BOOLEAN MacTableDeleteEntry(RTMP_ADAPTER *pAd, USHORT wcid, UCHAR *pAddr)
+ 	char name[8]={0};
+ 	int rate=0;
+ 
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT   
++	extern int mac2Str (unsigned char *mac, unsigned char *str, int bColon);
++	UCHAR TmpStrMac[MAC_STR_LEN] = {0};
++	extern int pb_nl_send_msg(void *msg, int msg_size);
++#endif    
++
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT 
++	NDIS_AP_802_11_NETLINK_MSG_INFO StaNlMsgInfo;   
++#endif
++
+ 	if (wcid >= MAX_LEN_OF_MAC_TABLE)
+ 		return FALSE;
+ 
+@@ -922,6 +932,29 @@ BOOLEAN MacTableDeleteEntry(RTMP_ADAPTER *pAd, USHORT wcid, UCHAR *pAddr)
+ 	if (pAddr != NULL)
+ 		DBGPRINT(RT_DEBUG_TRACE, ("MacTableDelete %02x:%02x:%02x:%02x:%02x:%02x\n",PRINT_MAC(pAddr)));
+ 
++#ifdef DEV_MSG_EVENT_SEND_SUPPORT
++	NdisZeroMemory(&(pAd->ApCfg.MBSSID[0].StaMsgInfo), sizeof(NDIS_AP_802_11_STA_DEV_MSG));
++	pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgType = MSG_TYPE_OFFLINE;
++	pAd->ApCfg.MBSSID[0].StaMsgInfo.AccessType = ACCESS_TYPE_WIRELESS;
++
++	NdisZeroMemory(TmpStrMac, MAC_STR_LEN);
++	mac2Str(pAddr, TmpStrMac, 1);
++	NdisCopyMemory(pAd->ApCfg.MBSSID[0].StaMsgInfo.ClientMac,TmpStrMac, MAC_STR_LEN);
++	pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgBandType = BAND_TYPE_2_4_G;
++	NdisCopyMemory(pAd->ApCfg.MBSSID[0].StaMsgInfo.MsgSSID, pAd->ApCfg.MBSSID[0].Ssid, MAX_LEN_OF_SSID);
++
++	
++	NdisZeroMemory(&StaNlMsgInfo, sizeof(NDIS_AP_802_11_NETLINK_MSG_INFO));
++	StaNlMsgInfo.MsgType = NL_MSG_DEV_ONLINE_STATUS;
++	NdisCopyMemory(&(StaNlMsgInfo.Body), (UCHAR *)&(pAd->ApCfg.MBSSID[0].StaMsgInfo), sizeof(NDIS_AP_802_11_STA_DEV_MSG));
++	StaNlMsgInfo.MsgLen = sizeof(NDIS_AP_802_11_STA_DEV_MSG)
++	                  +  sizeof(INT) + sizeof(NETLINK_MSG_TYPE);
++	
++	DBGPRINT(RT_DEBUG_OFF, ("-------->%s, %d!!!\n", __func__, __LINE__));
++	pb_nl_send_msg(&StaNlMsgInfo, StaNlMsgInfo.MsgLen);
++#endif		
++	
++
+ 	NdisAcquireSpinLock(&pAd->MacTabLock);
+ 
+ 	HashIdx = MAC_ADDR_HASH_INDEX(pAddr);
+diff --git a/mt76x2/os/linux/ap_ioctl.c b/mt76x2/os/linux/ap_ioctl.c
+index 68e017c..07eb5dc 100644
+--- a/mt76x2/os/linux/ap_ioctl.c
++++ b/mt76x2/os/linux/ap_ioctl.c
+@@ -96,7 +96,13 @@ struct iw_priv_args ap_privtab[] = {
+   "stat"},
+   { RTPRIV_IOCTL_GET_APCLI_CONNSTATUS,
+   IW_PRIV_TYPE_CHAR | 1024, IW_PRIV_TYPE_CHAR | 1024,
+-  "Connstatus"}
++  "Connstatus"},
++{ RTPRIV_IOCTL_DEL_TPMK_TABLE,
++  IW_PRIV_TYPE_CHAR | 1024, IW_PRIV_TYPE_CHAR | 1024,
++  "tpsk_del"},
++{ RTPRIV_IOCTL_SHOW_TPMK_TABLE,
++  IW_PRIV_TYPE_CHAR | 1024, IW_PRIV_TYPE_CHAR | 1024,
++  "tpsk_table_show"}  
+ };
+ 
+ #if 1//def CONFIG_APSTA_MIXED_SUPPORT
+@@ -688,6 +694,63 @@ if ((phymode & WMODE_GN) != 0) {
+ 			break;
+ /* end of modification */
+ 
++#ifdef TPSK_SUPPORT
++        case RTPRIV_IOCTL_SET_TPMK_TABLE:
++			printk("RTPRIV_IOCTL_SET_TPMK_TABLE\n");
++            RTMP_AP_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_SET_TPMK_TABLE, 0, NULL, 0);
++            break;
++        case RTPRIV_IOCTL_GET_TPMK_TABLE:
++			printk("RTPRIV_IOCTL_GET_TPMK_TABLE\n");
++            RTMP_AP_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_GET_TPMK_TABLE, 0, NULL, 0);
++            break;
++        case RTPRIV_IOCTL_DEL_TPMK_ENTRY:
++			printk("RTPRIV_IOCTL_DEL_TPMK_ENTRY\n");
++            RTMP_AP_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_DEL_TPMK_ENTRY, 0, NULL, 0);
++            break;
++        case RTPRIV_IOCTL_DEL_TPMK_TABLE:
++			printk("RTPRIV_IOCTL_DEL_TPMK_TABLE\n");
++            RTMP_AP_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_DEL_TPMK_TABLE, 0, NULL, 0);
++            break;
++        case RTPRIV_IOCTL_SHOW_TPMK_TABLE:
++			printk("RTPRIV_IOCTL_SHOW_TPMK_TABLE\n");
++            RTMP_AP_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_SHOW_TPMK_TABLE, 0, NULL, 0);
++            break;
++#endif
++
++#ifdef VEDOR_IE_CONTROL_SUPPORT
++        case RTPRIV_IOCTL_CUSTEROM_IE_SET:
++			printk("RTPRIV_IOCTL_CUSTEROM_IE_SET\n");
++            RTMP_AP_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_CUSTEROM_IE_SET, 0, NULL, 0);
++            break;
++
++        case RTPRIV_IOCTL_CUSTEROM_IE_CLEAR:
++			printk("RTPRIV_IOCTL_CUSTEROM_IE_CLEAR\n");
++            RTMP_AP_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_CUSTEROM_IE_CLEAR, 0, NULL, 0);
++            break;
++#endif
++
++#ifdef VEDOR_IE_FILTER_SUPPORT
++        case RTPRIV_IOCTL_VDOER_IE_FILTER_SET:
++			printk("RTPRIV_IOCTL_VDOER_IE_FILTER_SET\n");
++            RTMP_AP_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_VDOER_IE_FILTER_SET, 0, NULL, 0);
++            break;
++
++        case RTPRIV_IOCTL_VDOER_IE_FILTER_CLEAR:
++			printk("RTPRIV_IOCTL_VDOER_IE_FILTER_CLEAR\n");
++            RTMP_AP_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_VDOER_IE_FILTER_CLEAR, 0, NULL, 0);
++            break;
++#endif
++
++#ifdef SNIFFER_STA_PROBE_SUPPORT
++        case RTPRIV_IOCTL_SNIFFER_STA_PROBE_ENABLE:
++            RTMP_AP_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_SNIFFER_STA_PROBE_ENABLE, 0, NULL, 0);
++            break;
++
++        case RTPRIV_IOCTL_SNIFFER_STA_PROBE_DISABLE:
++            RTMP_AP_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_SNIFFER_STA_PROBE_DISABLE, 0, NULL, 0);
++            break;
++#endif
++
+ #ifdef AP_SCAN_SUPPORT
+ 		case RTPRIV_IOCTL_GSITESURVEY:
+ 			RTMP_AP_IoctlHandle(pAd, wrq, CMD_RTPRIV_IOCTL_GSITESURVEY, 0, NULL, 0);
+diff --git a/mt76x2/os/linux/rt_linux.c b/mt76x2/os/linux/rt_linux.c
+index 7a4601b..405189c 100644
+--- a/mt76x2/os/linux/rt_linux.c
++++ b/mt76x2/os/linux/rt_linux.c
+@@ -759,6 +759,31 @@ void hex_dump(char *str, UCHAR *pSrcBufVA, UINT SrcBufLen)
+ }
+ #endif /* DBG */
+ 
++void hex_dump_tpmk(
++	char *str,
++	unsigned char *pSrcBufVA,
++	unsigned int SrcBufLen)
++{
++//#ifdef DBG
++	unsigned char *pt;
++	int x;
++
++//	if (RTDebugLevel < RT_DEBUG_TRACE)
++	//	return;
++
++	pt = pSrcBufVA;
++	printk("%s: %p, len = %d\n", str, pSrcBufVA, SrcBufLen);
++	for (x = 0; x < SrcBufLen; x++) {
++		if (x % 16 == 0)
++			printk("0x%04x : ", x);
++		printk("%02x ", ((unsigned char)pt[x]));
++		if (x % 16 == 15)
++			printk("\n");
++	}
++	printk("\n");
++//#endif /* DBG */
++}
++
+ #ifdef SYSTEM_LOG_SUPPORT
+ /*
+ 	========================================================================
+diff --git a/mt76x2_ap/Makefile b/mt76x2_ap/Makefile
+index 6a9beee..3212c97 100644
+--- a/mt76x2_ap/Makefile
++++ b/mt76x2_ap/Makefile
+@@ -311,6 +311,13 @@ endif
+ # do not lock CountryRegion from EEPROM
+ EXTRA_CFLAGS += -DEEPROM_COUNTRY_UNLOCK
+
++ifneq ($(CONFIG_NF_SYS_EVENT_NETLINK),)
++EXTRA_CFLAGS   += -DTPSK_SUPPORT
++EXTRA_CFLAGS   += -DVEDOR_IE_CONTROL_SUPPORT
++EXTRA_CFLAGS   += -DVEDOR_IE_FILTER_SUPPORT
++EXTRA_CFLAGS   += -DSNIFFER_STA_PROBE_SUPPORT
++EXTRA_CFLAGS   += -DDEV_MSG_EVENT_SEND_SUPPORT
++endif
+ # provide external Flash memory support
+ EXTRA_CFLAGS += -DRTMP_FLASH_SUPPORT
+ 

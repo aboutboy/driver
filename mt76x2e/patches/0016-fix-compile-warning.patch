@@ -1,0 +1,54 @@
+diff --git a/mt76x2/ap/ap_cfg.c b/mt76x2/ap/ap_cfg.c
+index 7265d3f..2c76708 100644
+--- a/mt76x2/ap/ap_cfg.c
++++ b/mt76x2/ap/ap_cfg.c
+@@ -15875,7 +15875,7 @@ INT Set_Enable_Channel_Timer_Proc(RTMP_ADAPTER *pAd, PSTRING arg)
+ 
+ 	UCHAR timer_enable;
+ 	UCHAR bbp_val;
+-	UINT32 mac_val;
++	UINT32 mac_val = 0;
+ 	mac_val &= (~0x01);
+ 
+ 	DBGPRINT(RT_DEBUG_OFF, ("--> %s()\n", __FUNCTION__));
+diff --git a/mt76x2/os/linux/rt_main_dev.c b/mt76x2/os/linux/rt_main_dev.c
+index 500220e..0ba87c0 100644
+--- a/mt76x2/os/linux/rt_main_dev.c
++++ b/mt76x2/os/linux/rt_main_dev.c
+@@ -455,7 +455,7 @@ PNET_DEV RtmpPhyNetDevInit(VOID *pAd, RTMP_OS_NETDEV_OP_HOOK *pNetDevHook)
+ #if WIRELESS_EXT >= 12
+ 	if (OpMode == OPMODE_AP)
+ 	{
+-		pNetDevHook->iw_handler = &rt28xx_ap_iw_handler_def;
++		pNetDevHook->iw_handler = (void *)&rt28xx_ap_iw_handler_def;
+ 	}
+ #endif /*WIRELESS_EXT >= 12 */
+ #endif /* CONFIG_APSTA_MIXED_SUPPORT */
+diff --git a/mt76x2/ate/chips/mt76x2_ate.c b/mt76x2/ate/chips/mt76x2_ate.c
+index 90ce87c..a32744a 100644
+--- a/mt76x2/ate/chips/mt76x2_ate.c
++++ b/mt76x2/ate/chips/mt76x2_ate.c
+@@ -1432,7 +1432,7 @@ INT	mt76x2_set_ate_tx_bw_proc(
+  	}
+ 	else if ((BBPCurrentBW == 4))
+ 	{
+-		ad->ate.TxWI.TXWI_N.BW = BW_10;
++		//ad->ate.TxWI.TXWI_N.BW = BW_10;
+  	}
+ 	else
+ 	{
+@@ -1477,10 +1477,10 @@ INT	mt76x2_set_ate_tx_bw_proc(
+ 			core &= (~0x18);
+ 			agc |= 0x1000;
+ 			break;
+-		case BW_10:
+-			core |= 0x08;
+-			agc |= 0x1000;
+-			break;
++// 		case BW_10:
++// 			core |= 0x08;
++// 			agc |= 0x1000;
++// 			break;
+ 	}
+ 
+ 	if (core != core_r1) 

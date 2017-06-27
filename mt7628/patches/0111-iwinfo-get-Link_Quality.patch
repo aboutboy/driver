@@ -1,0 +1,39 @@
+diff --git a/mt7628/embedded/common/cmm_cfg.c b/mt7628/embedded/common/cmm_cfg.c
+index 0e1f661..f5be1c1 100755
+--- a/mt7628/embedded/common/cmm_cfg.c
++++ b/mt7628/embedded/common/cmm_cfg.c
+@@ -2131,10 +2131,34 @@ INT RTMP_COM_IoctlHandle(
+ 			if (CurOpMode == OPMODE_AP)
+ 			{
+ 				if (pMacEntry != NULL)
++				{
+ 					pStats->level =
+ 						RTMPMaxRssi(pAd, pMacEntry->RssiSample.AvgRssi[0],
+ 										pMacEntry->RssiSample.AvgRssi[1],
+ 										pMacEntry->RssiSample.AvgRssi[2]);
++				} else {
++					if ((pStats->priv_flags != INT_APCLI))
++						pStats->level =
++						RTMPMaxRssi(pAd, pAd->ApCfg.RssiSample.AvgRssi[0],
++										pAd->ApCfg.RssiSample.AvgRssi[1],
++										pAd->ApCfg.RssiSample.AvgRssi[2]);
++				}
++
++				if(pStats->level == 0)
++				{
++					union WTBL_2_DW13 wtbl_2_d13;
++					MAC_TABLE_ENTRY *pEntry;
++					INT32 Rssi0 = 0, Rssi1 = 0, Rssi2 = 0;
++
++					pEntry = &pAd->MacTab.Content[MCAST_WCID];
++					Wtbl2RcpiGet(pAd, pEntry->wcid, &wtbl_2_d13);
++
++					Rssi0 = (wtbl_2_d13.field.resp_rcpi_0 - 220) / 2;
++					Rssi1 = (wtbl_2_d13.field.resp_rcpi_1 - 220) / 2;
++					Rssi2 = 0;
++		
++					pStats->level = RTMPMaxRssi(pAd, Rssi0, Rssi1, Rssi2);
++				}
+ 			}
+ #endif /* CONFIG_AP_SUPPORT */
+ 

@@ -1,0 +1,97 @@
+--- a/mt76x3/include/rtmp.h
++++ b/mt76x3/include/rtmp.h
+@@ -4484,7 +4484,7 @@ MONITOR_STRUCT monitor_ctrl;
+ 
+ 
+ #ifdef CONFIG_ATE
+-	ATE_INFO ate;
++	//ATE_INFO ate;
+ 	ATE_CTRL ATECtrl;
+ #endif
+ 
+--- a/mt76x3/os/linux/rt_linux.c
++++ b/mt76x3/os/linux/rt_linux.c
+@@ -43,8 +43,8 @@
+ #endif
+ 
+ #if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
+-#include "../../../../../../../net/nat/hw_nat/ra_nat.h"
+-#include "../../../../../../../net/nat/hw_nat/frame_engine.h"
++#include "ra_nat.h"
++#include "frame_engine.h"
+ #endif
+ 
+ /* TODO */
+--- a/mt76x3/os/linux/rt_profile.c
++++ b/mt76x3/os/linux/rt_profile.c
+@@ -30,8 +30,8 @@
+ #endif
+ 
+ #if defined (CONFIG_RA_HW_NAT)  || defined (CONFIG_RA_HW_NAT_MODULE)
+-#include "../../../../../../net/nat/hw_nat/ra_nat.h"
+-#include "../../../../../../net/nat/hw_nat/frame_engine.h"
++#include "ra_nat.h"
++#include "frame_engine.h"
+ #endif
+ 
+ 
+--- a/mt76x3_ap/Makefile
++++ b/mt76x3_ap/Makefile
+@@ -94,7 +94,7 @@ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/ch
+ 
+ ifeq ($(CONFIG_RT_ATE),y)
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/ate/mt_mac/mt_ate.o
+-$(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/ate/inf/ate_pci.o
++# $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/ate/inf/ate_pci.o
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/ate/ate_agent.o
+ ifeq ($(CONFIG_RT_QA),y)
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/ate/qa_agent.o
+@@ -231,9 +231,9 @@ endif
+ ##################
+ 
+ EXTRA_CFLAGS  = -Wall -Wstrict-prototypes -Wno-trigraphs -Wframe-larger-than=4096 -Wno-unused -Wno-declaration-after-statement
+-EXTRA_CFLAGS += -Idrivers/net/wireless/ralink/$(RT_DRV_DIR)/include
++EXTRA_CFLAGS += -I$(RT_DRV_DIR)/include
+ ifeq ($(CONFIG_RT_ATE),y)
+-EXTRA_CFLAGS += -Idrivers/net/wireless/ralink/$(RT_DRV_DIR)/ate/include
++EXTRA_CFLAGS += -I$(RT_DRV_DIR)/ate/include
+ endif
+ EXTRA_CFLAGS += -DAGGREGATION_SUPPORT -DPIGGYBACK_SUPPORT -DWMM_SUPPORT -DLINUX
+ EXTRA_CFLAGS += -DCONFIG_AP_SUPPORT -DUAPSD_SUPPORT -DDOT11_N_SUPPORT -DDOT1X_SUPPORT
+@@ -457,3 +457,36 @@ ifeq ($(CONFIG_RT_MC_SUPPORT),y)
+ EXTRA_CFLAGS += -DMULTIPLE_CARD_SUPPORT
+ endif
+ 
++#EXTRA_CFLAGS += -DCONFIG_RT_FIRST_CARD=$(CONFIG_RT_FIRST_CARD)
++EXTRA_CFLAGS += -DCONFIG_RT_FIRST_CARD=7603
++EXTRA_CFLAGS += -DCONFIG_RT_SECOND_CARD=$(CONFIG_RT_SECOND_CARD)
++EXTRA_CFLAGS += -DCONFIG_RT_FIRST_IF_RF_OFFSET=$(CONFIG_RT_FIRST_IF_RF_OFFSET)
++EXTRA_CFLAGS += -DCONFIG_RT_SECOND_IF_RF_OFFSET=$(CONFIG_RT_SECOND_IF_RF_OFFSET)
++
++EXTRA_CFLAGS += -DCONFIG_RT_MAX_CLIENTS=$(CONFIG_RT_MAX_CLIENTS)
++
++ifeq ($(CONFIG_RT_FIRST_IF_EEPROM_PROM),y)
++EXTRA_CFLAGS += -DCONFIG_RT_FIRST_CARD_EEPROM="\"prom\""
++else
++ifeq ($(CONFIG_RT_FIRST_IF_EEPROM_EFUSE),y)
++EXTRA_CFLAGS += -DCONFIG_RT_FIRST_CARD_EEPROM="\"efuse\""
++else
++ifeq ($(CONFIG_RT_FIRST_IF_EEPROM_FLASH),y)
++EXTRA_CFLAGS += -DCONFIG_RT_FIRST_CARD_EEPROM="\"flash\""
++endif
++endif
++endif
++
++ifeq ($(CONFIG_SECOND_IF_EEPROM_PROM),y)
++EXTRA_CFLAGS += -DCONFIG_RT_SECOND_CARD_EEPROM="\"prom\""
++else
++ifeq ($(CONFIG_SECOND_IF_EEPROM_EFUSE),y)
++EXTRA_CFLAGS += -DCONFIG_RT_SECOND_CARD_EEPROM="\"efuse\""
++else
++ifeq ($(CONFIG_SECOND_IF_EEPROM_FLASH),y)
++EXTRA_CFLAGS += -DCONFIG_RT_SECOND_CARD_EEPROM="\"flash\""
++endif
++endif
++endif 
++
++EXTRA_CFLAGS += -Wno-date-time

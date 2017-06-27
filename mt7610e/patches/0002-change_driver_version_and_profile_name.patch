@@ -1,0 +1,66 @@
+--- a/mt7610/common/cmm_cfg.c
++++ b/mt7610/common/cmm_cfg.c
+@@ -760,7 +760,7 @@ INT RtmpIoctl_rt_ioctl_giwname(
+ 
+ 	if (CurOpMode == OPMODE_AP)
+ 	{
+-		strcpy(pData, "RTWIFI SoftAP");
++		strcpy(pData, "MT7610E PCIe");
+ 	}
+ 
+ 	return NDIS_STATUS_SUCCESS;
+--- a/mt7610/common/rtmp_init.c
++++ b/mt7610/common/rtmp_init.c
+@@ -3743,7 +3743,7 @@ INT RtmpRaDevCtrlInit(VOID *pAdSrc, RTMP
+ 
+ #ifdef CONFIG_AP_SUPPORT
+ 	pAd->OpMode = OPMODE_AP;
+-	printk("%s AP Driver version: %s\n", "MT7610", AP_DRIVER_VERSION);
++	printk("PandoraBox %s AP Driver version: %s(%s %s).\n", "MT7610E", AP_DRIVER_VERSION, __DATE__, __TIME__);
+ #endif /* CONFIG_AP_SUPPORT */
+ 
+ 	DBGPRINT(RT_DEBUG_TRACE, ("pAd->infType=%d\n", pAd->infType));
+--- a/mt7610/include/os/rt_drv.h
++++ b/mt7610/include/os/rt_drv.h
+@@ -63,7 +63,7 @@ typedef VOID	pregs;
+  ***********************************************************************************/
+ #ifdef CONFIG_AP_SUPPORT
+ #ifdef RTMP_MAC_PCI
+-#define AP_PROFILE_PATH			"/etc/Wireless/iNIC/iNIC_ap.dat"
++#define AP_PROFILE_PATH			"/tmp/profiles/rt2860v2_5g.dat"
+ #define AP_RTMP_FIRMWARE_FILE_NAME	"/etc_ro/Wireless/iNIC_ap.bin"
+ #define AP_NIC_DEVICE_NAME		"MT7610_AP"
+ #define AP_DRIVER_VERSION		"3.0.0.9"
+--- a/mt7610/include/os/rt_linux.h
++++ b/mt7610/include/os/rt_linux.h
+@@ -128,8 +128,8 @@ typedef struct usb_ctrlrequest devctrlre
+  #define CARD_INFO_PATH			"/etc/Wireless/RT2860/RT2860APCard.dat"
+ #else
+  #define AP_RTMP_FIRMWARE_FILE_NAME	"/etc_ro/Wireless/iNIC_ap.bin"
+- #define AP_PROFILE_PATH		"/etc/Wireless/iNIC/iNIC_ap.dat"
+- #define SINGLE_SKU_TABLE_FILE_NAME	"/etc/Wireless/iNIC/SingleSKU.dat"
++ #define AP_PROFILE_PATH		"/tmp/profiles/rt2860v2_5g.dat"
++ #define SINGLE_SKU_TABLE_FILE_NAME	"/etc/Wireless/SingleSKU_5G.dat"
+  #define CARD_INFO_PATH			"/etc/Wireless/iNIC/RT2860APCard.dat"
+ #endif
+ #define AP_NIC_DEVICE_NAME		"MT7610_AP"
+--- a/mt7610/include/os/rt_linux_cmm.h
++++ b/mt7610/include/os/rt_linux_cmm.h
+@@ -59,7 +59,7 @@ void Rtmp_Drv_Ops_##_func(VOID *__pDrvOp
+ #define def_to_str(s)    #s
+ 
+ #ifdef RTMP_MAC_PCI
+-#define RTMP_DRV_NAME	"rtpci" xdef_to_str(RT28xx_MODE)
++#define RTMP_DRV_NAME	"mt7610e" xdef_to_str(RT28xx_MODE)
+ RTMP_DECLARE_DRV_OPS_FUNCTION(pci);
+ #define RTMP_DRV_OPS_FUNCTION				RTMP_DRV_OPS_FUNCTION_BODY(pci)
+ #define RTMP_BUILD_DRV_OPS_FUNCTION_BODY	RTMP_BUILD_DRV_OPS_FUNCTION(pci)
+@@ -68,7 +68,7 @@ RTMP_DECLARE_DRV_OPS_FUNCTION(pci);
+ 
+ #else
+ 
+-#define RTMP_DRV_NAME	"rtpci"
++#define RTMP_DRV_NAME	"mt7610e"
+ 
+ #endif /* OS_ABL_FUNC_SUPPORT */
+ 

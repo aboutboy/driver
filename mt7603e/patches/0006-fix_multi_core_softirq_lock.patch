@@ -1,0 +1,22 @@
+--- a/mt76x3/include/os/rt_linux.h
++++ b/mt76x3/include/os/rt_linux.h
+@@ -348,7 +348,7 @@ typedef spinlock_t			OS_NDIS_SPIN_LOCK;
+ 
+ 
+ /* sample, use semaphore lock to replace IRQ lock, 2007/11/15 */
+-#ifdef MULTI_CORE_SUPPORT
++#if 0
+ 
+ #define OS_IRQ_LOCK(__lock, __irqflags)			\
+ {													\
+--- a/mt76x3/include/os/rt_linux_cmm.h
++++ b/mt76x3/include/os/rt_linux_cmm.h
+@@ -272,7 +272,7 @@ RTMP_DECLARE_DRV_OPS_FUNCTION(pci);
+ #define RTMP_SPIN_UNLOCK_IRQRESTORE				RtmpOsSpinUnlockIrqRestore
+ 
+ /* sample, use semaphore lock to replace IRQ lock, 2007/11/15 */
+-#ifdef MULTI_CORE_SUPPORT
++#if 0
+ 
+ #define RTMP_IRQ_LOCK(__lock, __irqflags)			\
+ {													\

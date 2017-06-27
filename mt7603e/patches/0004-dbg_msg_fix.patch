@@ -1,0 +1,123 @@
+--- a/mt76x3/ate/ate_agent.c
++++ b/mt76x3/ate/ate_agent.c
+@@ -54,12 +54,13 @@ INT32 SetRxStop(RTMP_ADAPTER *pAd, RTMP_
+ }
+ 
+ 
++//#ifdef DBG
+ VOID ATE_QA_Statistics(RTMP_ADAPTER *pAd, RXWI_STRUC *pRxWI, RXINFO_STRUC *pRxInfo, PHEADER_802_11 pHeader)
+ {
+ 
+ }
+ 
+-#ifdef DBG
++
+ INT32 SetEERead(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
+ {
+ 	INT32 Ret = 0;
+@@ -123,7 +124,7 @@ INT32 SetRFWrite(RTMP_ADAPTER *pAd, RTMP
+ 
+ 
+ }
+-#endif /* DBG */
++//#endif /* DBG */
+ 
+ 
+ VOID EEReadAll(PRTMP_ADAPTER pAd, UINT16 *Data)
+--- a/mt76x3/ate/include/ate_agent.h
++++ b/mt76x3/ate/include/ate_agent.h
+@@ -21,16 +21,15 @@ struct _RTMP_ADAPTER;
+ 
+ INT32 SetTxStop(struct _RTMP_ADAPTER *pAd, RTMP_STRING *Arg);
+ INT32 SetRxStop(struct _RTMP_ADAPTER *pAd, RTMP_STRING *Arg);
+-INT32 RtmpDoAte(struct _RTMP_ADAPTER *pAd, RTMP_IOCTL_INPUT_STRUCT *wrq, RTMP_STRING *wrq_name);
++//#ifdef DBG
+ VOID ATE_QA_Statistics(struct _RTMP_ADAPTER *pAd, RXWI_STRUC *pRxWI, RXINFO_STRUC *pRxInfo, PHEADER_802_11 pHeader);
+-
+-#ifdef DBG
++INT32 RtmpDoAte(struct _RTMP_ADAPTER *pAd, RTMP_IOCTL_INPUT_STRUCT *wrq, RTMP_STRING *wrq_name);
+ INT32 SetEERead(struct _RTMP_ADAPTER *pAd, RTMP_STRING *Arg);
+ INT32 SetEEWrite(struct _RTMP_ADAPTER *pAd, RTMP_STRING *Arg);
+ INT32 SetBBPRead(struct _RTMP_ADAPTER *pAd, RTMP_STRING *Arg);
+ INT32 SetBBPWrite(struct _RTMP_ADAPTER *pAd, RTMP_STRING *Arg);
+ INT32 SetRFWrite(struct _RTMP_ADAPTER *pAd, RTMP_STRING *Arg);
+-#endif /* DBG */ 
++//#endif /* DBG */
+ VOID rt_ee_read_all(struct _RTMP_ADAPTER *pAd, UINT16 *Data);
+ VOID rt_ee_write_all(struct _RTMP_ADAPTER pAd, UINT16 *Data);
+ VOID rt_ee_write_bulk(struct _RTMP_ADAPTER pAd, UINT16 *Data, UINT16 offset, UINT16 length);
+--- a/mt76x3/include/rtmp.h
++++ b/mt76x3/include/rtmp.h
+@@ -4703,13 +4703,13 @@ MONITOR_STRUCT monitor_ctrl;
+ 
+     UINT32 rxv2_cyc3[10];
+ 
+-#ifdef DBG
++//#ifdef DBG
+ #ifdef MT_MAC
+     UCHAR BcnCnt; //Carter debug
+     ULONG HandleInterruptTime;
+     ULONG HandlePreInterruptTime;
+ #endif
+-#endif
++//#endif
+ #ifdef RTMP_PCI_SUPPORT
+ 	UINT32 DropInvalidPacket;
+ 	UINT32 RxResetDropCount;
+--- a/mt76x3/mac/mt_mac.c
++++ b/mt76x3/mac/mt_mac.c
+@@ -26,7 +26,7 @@
+ 
+ #include "rt_config.h"
+ 
+-#ifdef DBG
++//#ifdef DBG
+ VOID dump_rxinfo(RTMP_ADAPTER *pAd, RXINFO_STRUC *pRxInfo)
+ {
+ 	hex_dump("RxInfo Raw Data", (UCHAR *)pRxInfo, sizeof(RXINFO_STRUC));
+@@ -355,7 +355,7 @@ VOID dump_mt_mac_cr(RTMP_ADAPTER *pAd)
+ 		index++;
+ 	};
+ }
+-#endif /* DBG */
++//#endif /* DBG */
+ 
+ 
+ INT mt_mac_fifo_stat_update(RTMP_ADAPTER *pAd)
+@@ -1560,7 +1560,7 @@ INT mt_mac_pse_init(RTMP_ADAPTER *pAd)
+ }
+ 
+ 
+-#ifdef DBG
++//#ifdef DBG
+ VOID dump_wtbl_1_info(RTMP_ADAPTER *pAd, struct wtbl_1_struc *tb)
+ {
+ 	union WTBL_1_DW0 *wtbl_1_d0 = (union WTBL_1_DW0 *)&tb->wtbl_1_d0.word;
+@@ -1912,7 +1912,7 @@ VOID dump_wtbl_entry(RTMP_ADAPTER *pAd,
+ 		}
+ 	}
+ }
+-#endif /* DBG */
++//#endif /* DBG */
+ 
+ 
+ INT mt_wtbl_get_entry234(RTMP_ADAPTER *pAd, UCHAR widx, struct wtbl_entry *ent)
+--- a/mt76x3/mgmt/mgmt_entrytb.c
++++ b/mt76x3/mgmt/mgmt_entrytb.c
+@@ -30,7 +30,6 @@ extern void port_link_hotplug_work(char
+ extern int get_rate(MACHTTRANSMIT_SETTING TxRate);
+ extern VOID Wtbl2RcpiGet(RTMP_ADAPTER *pAd, UCHAR ucWcid, union WTBL_2_DW13 *wtbl_2_d13);
+ 
+-#ifdef DBG
+ VOID dump_tr_entry(RTMP_ADAPTER *pAd, INT tr_idx, const RTMP_STRING *caller, INT line)
+ {
+ 	STA_TR_ENTRY *tr_entry;
+@@ -73,7 +72,7 @@ VOID dump_tr_entry(RTMP_ADAPTER *pAd, IN
+ 		rtmp_tx_swq_dump(pAd, qidx);
+ 	}
+ }
+-#endif /* DBG */
++//#endif /* DBG */
+ 
+ VOID tr_tb_reset_entry(RTMP_ADAPTER *pAd, UCHAR tr_tb_idx)
+ {

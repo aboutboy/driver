@@ -1,0 +1,32 @@
+diff --git a/mt76x2/chips/mt76x2.c b/mt76x2/chips/mt76x2.c
+index f77502c..f0417cb 100644
+--- a/mt76x2/chips/mt76x2.c
++++ b/mt76x2/chips/mt76x2.c
+@@ -1776,13 +1776,26 @@ VOID init_fce(RTMP_ADAPTER *ad)
+ 
+ }
+ 
++#include <asm/mach-ralink/cpuid.h>
++extern int (*ralink_wifi_hook)(int dev);
++
+ static void mt76x2_init_mac_cr(RTMP_ADAPTER *ad)
+ {
+ 	u32 i;
+ 	u32 value = 0;
+ 	u16 e2p_value;
+ 	char xtal_freq_offset = 0;
+-
++	
++	if(ralink_wifi_hook != NULL)
++	{
++		if(IS_MT7602(ad))
++			ralink_wifi_hook(MT7602E_WIFI);
++		else if(IS_MT7612E(ad))
++			ralink_wifi_hook(MT7612E_WIFI);
++		else
++			printk("%s:UNKNOWN CHIP\n", __FUNCTION__);
++	}
++	
+ 	/*
+ 		Enable PBF and MAC clock
+ 		SYS_CTRL[11:10] = 0x3

@@ -1,0 +1,21 @@
+--- a/mt7628/embedded/common/cmm_info.c
++++ b/mt7628/embedded/common/cmm_info.c
+@@ -3011,6 +3011,7 @@ VOID RTMPCommSiteSurveyData(
+ 
+ 		/*SSID*/
+ 	NdisZeroMemory(Ssid, (MAX_LEN_OF_SSID +1));
++#if 0
+ 	if (RTMPCheckStrPrintAble((PCHAR)pBss->Ssid, pBss->SsidLen))
+ 		NdisMoveMemory(Ssid, pBss->Ssid, pBss->SsidLen);
+ 	else
+@@ -3026,6 +3027,10 @@ VOID RTMPCommSiteSurveyData(
+ 			sprintf(Ssid + 2 + (idx*2), "%02X", (UCHAR)pBss->Ssid[idx]);
+ 	}
+ 		sprintf(msg+strlen(msg),"%-33s", Ssid);
++#else
++		NdisMoveMemory(Ssid, pBss->Ssid, pBss->SsidLen);
++		sprintf(msg+strlen(msg),"\n%s\n", Ssid);
++#endif
+ 
+ #ifdef AIRPLAY_SUPPORT
+ 	/* IsUniCode SSID */

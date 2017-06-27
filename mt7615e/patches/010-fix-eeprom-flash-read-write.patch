@@ -1,0 +1,35 @@
+diff --git a/mt_wifi/embedded/common/eeprom.c b/mt_wifi/embedded/common/eeprom.c
+index c260d48..635c213 100644
+--- a/mt_wifi/embedded/common/eeprom.c
++++ b/mt_wifi/embedded/common/eeprom.c
+@@ -813,7 +813,7 @@ INT RtmpChipOpsEepromHook(RTMP_ADAPTER *pAd, INT infType,INT forceMode)
+ 	efuse_probe(pAd);
+ #endif /* RTMP_EFUSE_SUPPORT */
+ 
+-	//rtmp_eeprom_of_platform(pAd);  //for MT7615, only use E2pAccessMode parameter to get eeprom type
++	rtmp_eeprom_of_platform(pAd);  //for MT7615, only use E2pAccessMode parameter to get eeprom type
+ 
+ 	if(forceMode != E2P_NONE && forceMode < NUM_OF_E2P_MODE)
+ 	{
+diff --git a/mt_wifi/os/linux/rt_linux.c b/mt_wifi/os/linux/rt_linux.c
+index 7094514..3d6e249 100644
+--- a/mt_wifi/os/linux/rt_linux.c
++++ b/mt_wifi/os/linux/rt_linux.c
+@@ -362,7 +362,7 @@ void RtmpFlashRead(
+ 	//wilsonl, fix compile for temp
+ #ifndef MT7622
+ 	/* ra_mtd_read_nm("Factory", a&0xFFFF, (size_t) b, p); */
+-	ra_mtd_read_nm("Factory", a, (size_t) b, p);  /* triple card needs to access beyond 0xFFFF , don't mask */
++	ra_mtd_read_nm("Factory", a&0xFFFF, (size_t) b, p);  /* triple card needs to access beyond 0xFFFF , don't mask */
+ #endif
+ #endif
+ #endif /* CONFIG_RALINK_FLASH_API */
+@@ -382,7 +382,7 @@ void RtmpFlashWrite(
+ 	//wilsonl, fix compile for temp
+ #ifndef MT7622
+ 	/* ra_mtd_write_nm("Factory", a&0xFFFF, (size_t) b, p); */
+-	ra_mtd_write_nm("Factory", a, (size_t) b, p);  /* triple card needs to access beyond 0xFFFF , don't mask */
++	ra_mtd_write_nm("Factory", a&0xFFFF, (size_t) b, p);  /* triple card needs to access beyond 0xFFFF , don't mask */
+ #endif
+ #endif
+ #endif /* CONFIG_RALINK_FLASH_API */

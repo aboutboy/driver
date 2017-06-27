@@ -1,0 +1,17 @@
+diff --git a/mt76x2/ap/ap_autoChSel.c b/mt76x2/ap/ap_autoChSel.c
+index 764e56a..988e3af 100644
+--- a/mt76x2/ap/ap_autoChSel.c
++++ b/mt76x2/ap/ap_autoChSel.c
+@@ -741,6 +741,12 @@ static inline UCHAR SelectClearChannelCCA(
+ 
+ 		break;
+ 	}
++	if (AutoChannelSkipListCheck(pAd, ch) && pAd->CommonCfg.vht_bw == VHT_BW_80)
++	{
++		ch = 149;
++		printk("Rule 3 CCA value : No other choices, Select ==> Select Channel %d\n", ch);
++	}
++	else
+ 	printk("Rule 3 CCA value : Randomly Select ==> Select Channel %d\n", ch);
+ 	return ch;
+ }

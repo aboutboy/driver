@@ -1,0 +1,26 @@
+diff --git a/mt76x3/common/cmm_cfg.c b/mt76x3/common/cmm_cfg.c
+old mode 100644
+new mode 100755
+index c53b866..1f5e70b
+--- a/mt76x3/common/cmm_cfg.c
++++ b/mt76x3/common/cmm_cfg.c
+@@ -705,7 +705,6 @@ INT RtmpIoctl_rt_ioctl_giwencodeext(RTMP_ADAPTER *pAd, VOID *pData, ULONG Data)
+ 	POS_COOKIE	pObj = (POS_COOKIE) pAd->OS_Cookie;
+ 	NDIS_802_11_WEP_STATUS			  WepStatus;
+ 	UCHAR ifIndex;
+-	BSS_STRUCT	*pMbss = NULL;
+ 	PAPCLI_STRUCT pApCliEntry = NULL;
+ 	UCHAR DefaultKeyId;
+ 
+@@ -718,9 +717,8 @@ INT RtmpIoctl_rt_ioctl_giwencodeext(RTMP_ADAPTER *pAd, VOID *pData, ULONG Data)
+ 	}
+ 	else
+ 	{
+-		pMbss = &pAd->ApCfg.MBSSID[ifIndex];
+-		WepStatus = pMbss-> WepStatus;
+-		DefaultKeyId = pMbss->DefaultKeyId;
++		WepStatus = pAd->ApCfg.MBSSID[ifIndex].wdev.WepStatus;
++		DefaultKeyId = pAd->ApCfg.MBSSID[ifIndex].wdev.DefaultKeyId;
+ 	}
+ 		idx = pIoctlSec->KeyIdx;
+ 		if (idx)

@@ -1,0 +1,23 @@
+--- a/mt76x2/os/linux/cfg80211/cfg80211drv.c
++++ b/mt76x2/os/linux/cfg80211/cfg80211drv.c
+@@ -1597,7 +1597,10 @@ BOOLEAN CFG80211_SupBandReInit(
+ {
+ 	PRTMP_ADAPTER pAd = (PRTMP_ADAPTER)pAdCB;
+ 	CFG80211_BAND BandInfo;
++	CFG80211_CB *pCfg80211_CB = CFG80211CB;
++	struct wiphy *pWiphy = pCfg80211_CB->pCfg80211_Wdev->wiphy;
+ 
++	memcpy(pWiphy->perm_addr, pAd->PermanentAddress, ETH_ALEN);
+ 
+ 	CFG80211DBG(RT_DEBUG_TRACE, ("80211> re-init bands...\n"));
+ 
+--- a/mt76x2/os/linux/rt_linux.c
++++ b/mt76x2/os/linux/rt_linux.c
+@@ -1659,6 +1659,7 @@ int RtmpOSNetDevAttach(
+ 	/* If we need hook some callback function to the net device structrue, now do it. */
+ 	if (pDevOpHook) {
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++		pNetDevOps->ndo_set_mac_address = eth_mac_addr;
+ 		pNetDevOps->ndo_open = pDevOpHook->open;
+ 		pNetDevOps->ndo_stop = pDevOpHook->stop;
+ 		pNetDevOps->ndo_start_xmit =

@@ -1,0 +1,13 @@
+--- a/rt2860v2/common/ee_flash.c
++++ b/rt2860v2/common/ee_flash.c
+@@ -355,6 +355,10 @@ NDIS_STATUS rtmp_nv_init(PRTMP_ADAPTER p
+ 	RtmpFlashRead(pAd->eebuf, pAd->E2P_OFFSET_IN_FLASH[pAd->MC_RowID], EEPROM_SIZE);
+ #else
+ 	RtmpFlashRead(pAd->eebuf, RF_OFFSET, EEPROM_SIZE);
++
++	/* Workaround:当MAC地址非8的整数倍时下取整至8的整数倍(后三位置0) */
++	(pAd->eebuf)[9] &= ~(0x07);
++
+ #endif /* MULTIPLE_CARD_SUPPORT */
+ 
+ 	return rtmp_ee_flash_init(pAd, pAd->eebuf);

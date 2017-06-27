@@ -1,0 +1,112 @@
+--- a/mt76x2/common/cmm_data_pci.c
++++ b/mt76x2/common/cmm_data_pci.c
+@@ -41,7 +41,7 @@
+ #else
+ //# error No  RT_SECURE_DMA
+ #endif
+-#ifdef DBG
++#if 1
+ VOID dump_txd(RTMP_ADAPTER *pAd, TXD_STRUC *pTxD)
+ {
+ 	DBGPRINT(RT_DEBUG_OFF, ("TxD:\n"));
+--- a/mt76x2/include/rt_config.h
++++ b/mt76x2/include/rt_config.h
+@@ -42,6 +42,9 @@
+ #include "rtmp_chip.h"
+ #include "rtmp_timer.h"
+ 
++#ifdef BG_FT_SUPPORT
++#include "br_ftph.h"
++#endif /* BG_FT_SUPPORT */
+ 
+ #ifdef AGS_SUPPORT
+ #include "ags.h"
+--- a/mt76x2/os/linux/br_ftph.c
++++ b/mt76x2/os/linux/br_ftph.c
+@@ -86,6 +86,7 @@ Note:
+ */
+ VOID BG_FTPH_Init(VOID)
+ {
++	printk("MT76x2E Fast Mode init.\n");
+ 	RALINK_FP_Handle = BG_FTPH_PacketFromApHandle;
+ }
+ 
+@@ -107,6 +108,7 @@ Note:
+ */
+ VOID BG_FTPH_Remove(VOID)
+ {
++	printk("MT76x2E Fast Mode exit.\n");
+ 	RALINK_FP_Handle = NULL;
+ } /* End of BG_FTPH_Init */
+ 
+@@ -144,9 +146,21 @@ UINT32 BG_FTPH_PacketFromApHandle(
+ 
+ 	if (pNetDev != NULL)
+ 	{
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++		if (br_port_get_rcu(pNetDev) != NULL)
++#else
+ 		if (pNetDev->br_port != NULL)
++#endif
+ 		{
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,12)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
++			/* br_fdb_get is not exported symbol, need exported in net/bridge/br.c */
++			pDstFdbEntry = __br_fdb_get(br_port_get_rcu(pNetDev)->br, pRxPkt->data, 0);
++			pSrcFdbEntry = __br_fdb_get(br_port_get_rcu(pNetDev)->br, pRxPkt->data + 6, 0);
++#elif  LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++			/* br_fdb_get is not exported symbol, need exported in net/bridge/br.c */
++			pDstFdbEntry = __br_fdb_get(br_port_get_rcu(pNetDev)->br, pRxPkt->data);
++			pSrcFdbEntry = __br_fdb_get(br_port_get_rcu(pNetDev)->br, pRxPkt->data + 6);
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,12)
+ 			pDstFdbEntry = br_fdb_get_hook(pNetDev->br_port->br, pRxPkt->data);
+ 			pSrcFdbEntry = br_fdb_get_hook(pNetDev->br_port->br, pRxPkt->data + 6);
+ #else
+@@ -162,7 +176,11 @@ UINT32 BG_FTPH_PacketFromApHandle(
+ 				(pDstFdbEntry->dst == NULL) ||
+ 				(pDstFdbEntry->dst->dev == NULL) ||
+ 				(pDstFdbEntry->dst->dev == pNetDev) ||
++#if  LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++				(br_port_get_rcu(pNetDev)->state != BR_STATE_FORWARDING) ||
++#else
+ 				(pNetDev->br_port->state != BR_STATE_FORWARDING) ||
++#endif
+ 				((pSrcFdbEntry->dst != NULL) &&
+ 					(pSrcFdbEntry->dst->dev != NULL) &&
+ 					(pSrcFdbEntry->dst->dev != pNetDev)))
+@@ -176,7 +194,11 @@ UINT32 BG_FTPH_PacketFromApHandle(
+ 				(pDstFdbEntry->dst->dev != NULL))
+ 			{
+ 				pRxPkt->dev = pDstFdbEntry->dst->dev;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
+ 				pDstFdbEntry->dst->dev->hard_start_xmit(pRxPkt, pDstFdbEntry->dst->dev);
++#else
++				pDstFdbEntry->dst->dev->netdev_ops->ndo_start_xmit(pRxPkt, pDstFdbEntry->dst->dev);
++#endif
+ 				return 0;
+ 			} /* End of if */
+ 		} /* End of if */
+--- a/mt76x2_ap/Makefile
++++ b/mt76x2_ap/Makefile
+@@ -203,6 +203,10 @@ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/co
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/common/cmm_txbf_cal.o
+ endif
+ 
++ifeq ($(CONFIG_RT_BRIDGE_FASTPATH),y)
++$(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/os/linux/br_ftph.o
++endif
++
+ ifeq ($(CONFIG_RT_WSC),y)
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/common/wsc.o
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/common/wsc_tlv.o
+@@ -382,6 +386,10 @@ EXTRA_CFLAGS += -DMULTI_INF_SUPPORT
+ endif
+ endif
+ 
++ifeq ($(CONFIG_RT_BRIDGE_FASTPATH),y)
++EXTRA_CFLAGS += -DBG_FT_SUPPORT
++endif
++
+ ifeq ($(CONFIG_RT_READ_MAC_FROM_MTD),y)
+ EXTRA_CFLAGS += -DREAD_MAC_FROM_EEPROM
+ endif

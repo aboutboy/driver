@@ -1,0 +1,54 @@
+diff --git a/mt7628/embedded/ap/ap_cfg.c b/mt7628/embedded/ap/ap_cfg.c
+old mode 100644
+new mode 100755
+index 78c6d2e..7437b3e
+--- a/mt7628/embedded/ap/ap_cfg.c
++++ b/mt7628/embedded/ap/ap_cfg.c
+@@ -3656,6 +3656,8 @@ INT RTMPAPQueryInformation(
+ 	POS_COOKIE pObj = (POS_COOKIE) pAd->OS_Cookie;
+ 	RTMP_STRING driverVersion[16];
+ 	UCHAR apidx = pObj->ioctl_if;
++	int j;
++	char country_num[4]={0};
+ #ifdef WSC_AP_SUPPORT
+ 	UINT WscPinCode = 0;
+ 	PWSC_PROFILE pProfile;
+@@ -3973,6 +3975,24 @@ INT RTMPAPQueryInformation(
+ 			Status = copy_to_user(wrq->u.data.pointer, &pAd->CommonCfg.Channel, wrq->u.data.length);
+ 			MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("Status=%d\n", Status));
+ 			break;
++
++		case RT_OID_GET_COUNTRYCODE:
++			wrq->u.data.length = sizeof(UINT);
++			for(j=0; j < NUM_OF_COUNTRIES; j++)
++			{
++				if ( !strncmp(pAd->CommonCfg.CountryCode,  allCountry[j].IsoName, 2) )
++				{
++					sprintf(country_num, "%d", allCountry[j].CountryNum);
++					if (copy_to_user(wrq->u.data.pointer, &country_num, wrq->u.data.length))
++					{
++						Status = -EFAULT;
++					}
++
++					break;
++				}
++			}
++			break;
++
+ 		case RT_OID_GET_ENCRYPTYPE:
+ 			{
+ 				wrq->u.data.length = sizeof(UINT);;
+diff --git a/mt7628/embedded/include/oid.h b/mt7628/embedded/include/oid.h
+old mode 100644
+new mode 100755
+index 3821728..a2d3d79
+--- a/mt7628/embedded/include/oid.h
++++ b/mt7628/embedded/include/oid.h
+@@ -890,6 +890,7 @@ typedef struct _NDIS_802_11_CAPABILITY {
+ #define RTPRIV_IOCTL_FLAG_NOSPACE		0x0004	/* Notify driver didn't need copy msg to caller due to the caller didn't reserve space for this cmd */
+ #endif /* DBG */
+ 
++#define RT_OID_GET_COUNTRYCODE						0x0998
+ #define RT_OID_GET_ENCRYPTYPE						0x0999
+ 
+ #ifdef SNMP_SUPPORT

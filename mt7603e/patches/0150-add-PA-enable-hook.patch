@@ -1,0 +1,36 @@
+diff --git a/mt76x3/chips/mt7603.c b/mt76x3/chips/mt7603.c
+index 4d6d118..d523c6d 100644
+--- a/mt76x3/chips/mt7603.c
++++ b/mt76x3/chips/mt7603.c
+@@ -138,13 +138,18 @@ static INT asic_set_tmac_info_template(RTMP_ADAPTER *pAd)
+ 	return TRUE;
+ }
+ 
++#include <asm/mach-ralink/cpuid.h>
++extern int (*ralink_wifi_hook)(int dev);
+ 
+ static VOID mt7603_init_mac_cr(RTMP_ADAPTER *pAd)
+ {
+ 	UINT32 mac_val;
+ 
+ 	DBGPRINT(RT_DEBUG_OFF, ("%s()-->\n", __FUNCTION__));
+-
++	
++	if(ralink_wifi_hook != NULL)
++		ralink_wifi_hook(MT7603E_WIFI);
++	
+ 	/* Preparation of TxD DW2~DW6 when we need run 3DW format */
+ 	asic_set_tmac_info_template(pAd);
+ 	
+@@ -1090,9 +1095,10 @@ static const RTMP_CHIP_OP MT7603_ChipOp = {
+ VOID mt7603_init(RTMP_ADAPTER *pAd)
+ {
+ 	RTMP_CHIP_CAP *pChipCap = &pAd->chipCap;
+-
++	
+ 	DBGPRINT(RT_DEBUG_OFF, ("%s()-->\n", __FUNCTION__));
+ 	
++
+ 	memcpy(&pAd->chipCap, &MT7603_ChipCap, sizeof(RTMP_CHIP_CAP));
+ 	memcpy(&pAd->chipOps, &MT7603_ChipOp, sizeof(RTMP_CHIP_OP));
+ 

@@ -1,0 +1,10 @@
+--- a/rt2860v2/common/cmm_data.c
++++ b/rt2860v2/common/cmm_data.c
+@@ -1019,6 +1019,7 @@ BOOLEAN RTMP_FillTxBlkInfo(
+ 		{
+ 			TX_BLK_SET_FLAG(pTxBlk, fTX_bMoreData);
+ 		}
++		pTxBlk->pMbss = &pAd->ApCfg.MBSSID[pTxBlk->apidx];
+ 	}
+ 	else
+ 	{

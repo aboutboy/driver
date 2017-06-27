@@ -1,0 +1,41 @@
+diff --git a/mt76x3/os/linux/rt_rbus_pci_drv.c b/mt76x3/os/linux/rt_rbus_pci_drv.c
+index f47d450..23b6c2a 100644
+--- a/mt76x3/os/linux/rt_rbus_pci_drv.c
++++ b/mt76x3/os/linux/rt_rbus_pci_drv.c
+@@ -1966,7 +1964,35 @@ VOID RTMPInitPCIeDevice(RT_CMD_PCIE_INIT *pConfig, VOID *pAdSrc)
+ 
+ 		RTMP_IO_READ32(pAd, TOP_HCR, &Value);
+ 		pAd->ChipID = Value;
+-
++		
++#if 1
++		/* try reset device */
++		
++#define MT_PSE_BASE			0x8000
++#define MT_PSE(ofs)			(MT_PSE_BASE + (ofs))
++
++#define MT_PSE_RESET			MT_PSE(0x16c)
++// #define MT_PSE_RESET_SW			BIT(0)
++// #define MT_PSE_RESET_SW_S		BIT(1)
++		
++		RTMP_IO_READ32(pAd, MT_PSE_RESET, &Value);
++		DBGPRINT(RT_DEBUG_OFF, ("MT7603E MAC SoftReset!! MT_PSE_RESET=0x%08X\n", Value));
++		Value |= (1);
++		RTMP_IO_WRITE32(pAd, MT_PSE_RESET, Value);
++		usleep_range(5000, 10000);
++
++		RTMP_IO_READ32(pAd, MT_PSE_RESET, &Value);
++		Value &= ~(1);
++		RTMP_IO_WRITE32(pAd, MT_PSE_RESET, Value);
++		usleep_range(50000, 100000);
++		
++		/* Reset PDMA */
++		RTMP_IO_READ32(pAd, MT_WPDMA_GLO_CFG , &Value);
++		Value |= SW_RST;
++		RTMP_IO_WRITE32(pAd, MT_WPDMA_GLO_CFG, Value); 
++		usleep_range(50000, 100000);
++#endif
++		
+ 		if (IS_MT7603(pAd))
+ 		{
+ 			RTMP_IO_READ32(pAd, STRAP_STA, &Value);

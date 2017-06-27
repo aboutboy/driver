@@ -1,0 +1,185 @@
+From 04059ad425093cf93e78ab39c5d4687bd20219e3 Mon Sep 17 00:00:00 2001
+From: luo <strugglelg@gmail.com>
+Date: Mon, 5 Sep 2016 14:22:28 +0800
+Subject: [PATCH 2/2] three
+
+---
+ mt76x2/ap/ap_cfg.c            | 28 ++++++++++++++++++++++++++++
+ mt76x2/common/cmm_profile.c   | 10 ++++++++++
+ mt76x2/include/rtmp.h         |  4 +++-
+ mt76x2/rate_ctrl/alg_grp.c    | 28 ++++++++++++++++++++++++++--
+ mt76x2/rate_ctrl/alg_legacy.c | 23 +++++++++++++++++++++--
+ 5 files changed, 88 insertions(+), 5 deletions(-)
+
+diff --git a/mt76x2/ap/ap_cfg.c b/mt76x2/ap/ap_cfg.c
+index c025cb7..bb1f0c0 100644
+--- a/mt76x2/ap/ap_cfg.c
++++ b/mt76x2/ap/ap_cfg.c
+@@ -156,6 +156,9 @@ COUNTRY_CODE_TO_COUNTRY_REGION allCountry[] = {
+ 
+ #define NUM_OF_COUNTRIES	(sizeof(allCountry)/sizeof(COUNTRY_CODE_TO_COUNTRY_REGION))
+ 
++INT Set_PandoraBoxSmartEnable(
++	IN	PRTMP_ADAPTER	pAd,
++	IN	PSTRING 		arg);
+ 
+ INT Set_CountryString_Proc(
+ 	IN	PRTMP_ADAPTER	pAd, 
+@@ -805,6 +808,7 @@ static struct {
+ 	INT (*set_proc)(PRTMP_ADAPTER pAdapter, PSTRING arg);
+ } *PRTMP_PRIVATE_SET_PROC, RTMP_PRIVATE_SUPPORT_PROC[] = {
+ 	{"RateAlg",						Set_RateAlg_Proc},
++	{"PandoraBoxSmart",		Set_PandoraBoxSmartEnable},
+ #ifdef NEW_RATE_ADAPT_SUPPORT
+ 	{"PerThrdAdj",					Set_PerThrdAdj_Proc},
+ 	{"LowTrafficThrd",				Set_LowTrafficThrd_Proc},
+@@ -1959,6 +1963,30 @@ INT RTMPAPPrivIoctlAR9Show(
+ #endif /*AR9_MAPI_SUPPORT*/
+ #endif/*AR9_INF*/
+ 
++#if 1
++INT Set_PandoraBoxSmartEnable(
++	IN	PRTMP_ADAPTER	pAd,
++	IN	PSTRING 		arg)
++{
++	UINT	enable = 0/*, apidx = 0*/;
++
++   enable = simple_strtol(arg, 0, 16);
++
++   if (enable==0x1)
++   {
++       pAd->bPandoraBoxSmartEn = 1;
++       DBGPRINT(RT_DEBUG_TRACE, ("###Set to PandoraBoxSmart Function Enable..\n"));
++   }
++   else /* Disable Airplay*/
++   {
++      pAd->bPandoraBoxSmartEn = 0;
++      DBGPRINT(RT_DEBUG_TRACE, ("###Set to PandoraBoxSmart Function Disable...\n"));
++   }
++
++   return TRUE;
++}
++#endif
++
+ INT RTMPAPSetInformation(
+ 	IN PRTMP_ADAPTER pAd,
+ 	INOUT RTMP_IOCTL_INPUT_STRUCT *rq,
+diff --git a/mt76x2/common/cmm_profile.c b/mt76x2/common/cmm_profile.c
+index 78bede2..dc87029 100644
+--- a/mt76x2/common/cmm_profile.c
++++ b/mt76x2/common/cmm_profile.c
+@@ -2713,6 +2713,16 @@ NDIS_STATUS	RTMPSetProfileParameters(
+ 			retval = RT_CfgSetCountryRegion(pAd, tmpbuf, BAND_24G);
+ 			DBGPRINT(RT_DEBUG_TRACE, ("CountryRegion=%d\n", pAd->CommonCfg.CountryRegion));
+ 		}
++#if 1
++		if(RTMPGetKeyParameter("PandoraBoxSmart", tmpbuf, 10, pBuffer, TRUE))
++		{
++			if(simple_strtol(tmpbuf, 0, 10) != 0)  /*Enable*/
++				pAd->bPandoraBoxSmartEn = TRUE;
++			else /*Disable*/
++				pAd->bPandoraBoxSmartEn = FALSE;
++			DBGPRINT(RT_DEBUG_TRACE, ("PandoraBox SmartFunction is %s!!!\n", pAd->bPandoraBoxSmartEn?"enabled":"disabled"));
++		}
++#endif
+ 		/*CountryRegionABand*/
+ 		if(RTMPGetKeyParameter("CountryRegionABand", tmpbuf, 25, pBuffer, TRUE))
+ 		{
+diff --git a/mt76x2/include/rtmp.h b/mt76x2/include/rtmp.h
+index 80ce25e..1f60c95 100644
+--- a/mt76x2/include/rtmp.h
++++ b/mt76x2/include/rtmp.h
+@@ -4875,7 +4875,9 @@ struct _RTMP_ADAPTER {
+ 	RTMP_CHIP_CAP chipCap;
+ 	struct phy_ops *phy_op;
+ 	struct hw_setting hw_cfg;
+-	
++
++	BOOLEAN 		bPandoraBoxSmartEn;
++
+ 	UINT32 MACVersion;	/* MAC version. Record rt2860C(0x28600100) or rt2860D (0x28600101).. */
+ 	UINT32 ChipID;
+ 	UINT16 ChipId; 		/* Chip version. Read from EEPROM 0x00 to identify RT5390H */
+diff --git a/mt76x2/rate_ctrl/alg_grp.c b/mt76x2/rate_ctrl/alg_grp.c
+index bf304ed..096e98b 100644
+--- a/mt76x2/rate_ctrl/alg_grp.c
++++ b/mt76x2/rate_ctrl/alg_grp.c
+@@ -1251,8 +1251,31 @@ VOID MlmeNewRateAdapt(
+ #endif /*  TXBF_SUPPORT */
+ 		if (CurrRateIdx != DownRateIdx)
+ 		{
+-			RTMP_RA_LEGACY_TB *pDownTxRate = PTX_RA_LEGACY_ENTRY(pTable, DownRateIdx);
+-
++//			RTMP_RA_LEGACY_TB *pDownTxRate = PTX_RA_LEGACY_ENTRY(pTable, DownRateIdx);
++#if 1
++			if(pAd->bPandoraBoxSmartEn) {
++						UCHAR *pTable = pEntry->pTable;
++						CHAR Rssi;
++						RTMP_RA_LEGACY_TB *pCurrTxRate;
++
++						Rssi = RTMPAvgRssi(pAd, &pEntry->RssiSample);
++						pCurrTxRate = PTX_RA_LEGACY_ENTRY(pTable, CurrRateIdx); //pCurrTxRate = PTX_RA_LEGACY_ENTRY(pTable, CurrRateIdx);
++
++						if(Rssi > -60 && pCurrTxRate->CurrMCS == 3)
++						{
++							pEntry->LastSecTxRateChangeAction = RATE_NO_CHANGE;
++							DBGPRINT(RT_DEBUG_INFO | DBG_FUNC_RA,("%s;%d;fix lowest mcs=3;pCurrTxRate->CurrMCS=%d=\n",__FUNCTION__,__LINE__,pCurrTxRate->CurrMCS));
++						}
++						else
++						{
++						pEntry->CurrTxRateIndex = DownRateIdx;
++						pEntry->LastSecTxRateChangeAction = RATE_DOWN;
++						}
++			} else {
++						pEntry->CurrTxRateIndex = DownRateIdx;
++						pEntry->LastSecTxRateChangeAction = RATE_DOWN;
++			}
++#else
+ 			/*If MODE_HTMIX Mode but pCurrTxRate == MCS_3,not drop*/
+ 			if( (Rssi > -65) && ( pCurrTxRate->Mode >= MODE_HTMIX ) && ( CurrRateIdx == NearStaLimitDownMCS) )
+ 			{
+@@ -1286,6 +1309,7 @@ VOID MlmeNewRateAdapt(
+ 				pEntry->CurrTxRateIndex = DownRateIdx;
+ 				pEntry->LastSecTxRateChangeAction = RATE_DOWN;
+ 			}
++#endif
+ 		}
+ 	}
+ 	else
+diff --git a/mt76x2/rate_ctrl/alg_legacy.c b/mt76x2/rate_ctrl/alg_legacy.c
+index 9ecaa49..9a2cf5f 100644
+--- a/mt76x2/rate_ctrl/alg_legacy.c
++++ b/mt76x2/rate_ctrl/alg_legacy.c
+@@ -1685,8 +1685,27 @@ VOID MlmeOldRateAdapt(
+ 			else
+ #endif /* NOISE_TEST_ADJUST */
+ 			{
+-				pEntry->CurrTxRateIndex = DownRateIdx;
+-				pEntry->LastSecTxRateChangeAction = RATE_DOWN;
++			if(pAd->bPandoraBoxSmartEn) {
++						UCHAR *pTable = pEntry->pTable;
++						CHAR Rssi;
++						RTMP_RA_LEGACY_TB *pCurrTxRate;
++
++						Rssi = RTMPAvgRssi(pAd, &pEntry->RssiSample);
++						pCurrTxRate = PTX_RA_LEGACY_ENTRY(pTable, CurrRateIdx);
++
++						if((Rssi > -60) && (pCurrTxRate->CurrMCS == 3))
++						{
++							pEntry->LastSecTxRateChangeAction = RATE_NO_CHANGE;
++						}
++						else
++						{
++							pEntry->CurrTxRateIndex = DownRateIdx;
++							pEntry->LastSecTxRateChangeAction = RATE_DOWN;
++						}
++			} else {
++						pEntry->CurrTxRateIndex = DownRateIdx;
++						pEntry->LastSecTxRateChangeAction = RATE_DOWN;
++			}
+ 			}
+ 		}
+ 	}
+-- 
+1.9.1
+

@@ -1,0 +1,65 @@
+--- a/mt76x2/include/os/rt_os.h
++++ b/mt76x2/include/os/rt_os.h
+@@ -82,7 +82,7 @@
+ #define RT_PRIV_IOCTL								(SIOCIWFIRSTPRIV + 0x01)
+ #define RTPRIV_IOCTL_SET							(SIOCIWFIRSTPRIV + 0x02)
+ #define RT_PRIV_IOCTL_EXT							(SIOCIWFIRSTPRIV + 0x0E) /* Sync. with RT61 (for wpa_supplicant) */				
+-#if defined(DBG) || defined(BB_SOC)
++#if defined(DBG) || defined(BB_SOC) || defined(RALINK_ATE)
+ #define RTPRIV_IOCTL_BBP                            (SIOCIWFIRSTPRIV + 0x03)
+ #define RTPRIV_IOCTL_MAC                            (SIOCIWFIRSTPRIV + 0x05)
+ 
+--- a/mt76x2/include/iface/rtmp_rbs.h
++++ b/mt76x2/include/iface/rtmp_rbs.h
+@@ -27,6 +27,8 @@
+ #ifndef __RTMP_RBUS_H__
+ #define __RTMP_RBUS_H__
+ 
++#include <asm/mach-ralink/surfboardint.h>
++
+ /*************************************************************************
+   *
+   *	Device hardware/ Interface related definitions.
+--- a/mt76x2/ap/ap_cfg.c
++++ b/mt76x2/ap/ap_cfg.c
+@@ -4327,9 +4327,7 @@ INT RTMPAPQueryInformation(
+     POS_COOKIE pObj = (POS_COOKIE) pAd->OS_Cookie;
+     STRING	driverVersion[16];
+ 	struct wifi_dev *wdev;
+-#if defined(DBG) || defined(WSC_AP_SUPPORT) || defined(BB_SOC) || defined(LLTD_SUPPORT)
+ 	UCHAR	apidx = pObj->ioctl_if;
+-#endif
+ #ifdef WSC_AP_SUPPORT
+ 	UINT WscPinCode = 0;
+ 	PWSC_PROFILE pProfile;
+--- a/mt76x2/include/rtmp.h
++++ b/mt76x2/include/rtmp.h
+@@ -87,8 +87,6 @@
+ #include "wfd_cmm.h"
+ #endif /* WFD_SUPPORT */
+ 
+-#include "drs_extr.h"
+-
+ struct _RTMP_RA_LEGACY_TB;
+ 
+ typedef struct _RTMP_ADAPTER RTMP_ADAPTER;
+@@ -97,6 +95,8 @@ typedef struct _RTMP_ADAPTER *PRTMP_ADAP
+ typedef struct _RTMP_CHIP_OP_ RTMP_CHIP_OP;
+ typedef struct _RTMP_CHIP_CAP_ RTMP_CHIP_CAP;
+ 
++#include "drs_extr.h"
++
+ #ifdef BB_SOC
+ #include "os/bb_soc.h"
+ #endif
+--- a/mt76x2/common/cmm_data.c
++++ b/mt76x2/common/cmm_data.c
+@@ -48,7 +48,7 @@ UCHAR WMM_UP2AC_MAP[8] = {QID_AC_BE, QID
+ 							QID_AC_VI, QID_AC_VI,
+ 							QID_AC_VO, QID_AC_VO};
+ 
+-#ifdef DBG
++#if 1
+ VOID dump_rxinfo(RTMP_ADAPTER *pAd, RXINFO_STRUC *pRxInfo)
+ {
+ 	hex_dump("RxInfo Raw Data", (UCHAR *)pRxInfo, sizeof(RXINFO_STRUC));

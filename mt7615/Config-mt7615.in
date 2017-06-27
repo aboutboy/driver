@@ -1,0 +1,304 @@
+if PACKAGE_kmod-mt7615
+config MT7615_AP
+	tristate "MediaTek MT7620/MT7602E/7612E 802.11 AP driver"
+	default m
+#	select WIRELESS_EXT
+#	select WEXT_SPY
+#	select WEXT_PRIV
+
+config  CHIP_MT7615E
+	bool "NT7615 support"
+	depends on MT7615_AP
+	default y
+	
+config  MT7615_AP_LED
+	bool "LED support"
+	depends on MT7615_AP
+	default y
+
+config  MT7615_AP_LLTD
+	bool "LLTD (Link Layer Topology Discovery Protocol)"
+	depends on MT7615_AP
+	default y
+
+config  MT7615_AP_WDS
+	bool "WDS support"
+	depends on MT7615_AP
+	default y
+
+config  MT7615_AP_MBSS
+	bool "MBSSID support"
+	depends on MT7615_AP
+	default y
+
+config  MT7615_AP_MBSS_NEW_MBSSID_MODE
+	bool "New MBSSID mode support"
+	depends on MT7615_AP
+	depends on MT7615_AP_MBSS
+	default y
+
+config  MT7615_AP_APCLI
+	bool "AP-Client support"
+	depends on MT7615_AP
+	default y
+
+config  MT7615_AP_APCLI_CERT
+	bool "AP-Client TGn Cert support"
+	depends on MT7615_AP
+	depends on MT7615_AP_APCLI
+	default n
+
+#config  MT7615_AP_APCLI_AUTO_BW
+#	bool "AP-Client Auto Bandwidth Support"
+#	depends on MT7615_AP
+#	depends on MT7615_AP_APCLI
+#	default n
+
+config  MT7615_AP_MAC_REPEATER
+	bool "MAC Repeater Mode support"
+	depends on MT7615_AP
+	depends on MT7615_AP_APCLI
+	default n
+	
+config MT7615_AP_RATE_ADAPTION
+	bool "New Rate Adaptation support"
+	depends on MT7615_AP
+	default y
+
+#config MT7615_AP_NEW_RATE_ADAPT
+#	bool "Intelligent Rate Adaption"
+#	depends on MT7615_AP
+#	default y
+
+#configMT7615_AP_DAPT_SUPPORT
+#	bool "Intelligent Rate Adaption"
+#	depends on MT7615_AP
+#	default y
+
+#config MT7615_AP_AGS
+#	bool "Adaptive Group Switching"
+#	depends on MT7615_AP
+#	default n
+
+config MT7615_AP_RATE_ADAPT_AGBS
+	bool "Adaptive AGBS Mode"
+	depends on MT7615_AP && MT7615_AP_RATE_ADAPTION
+	depends on MT7615_AP
+	default y
+	
+config MT7615_AP_MUMIMO
+        bool "MU-MIMO Support"
+        depends on MT7615_AP
+        select MU_RA_SUPPORT
+        default y
+        
+config MT7615_AP_MU_RA
+  	bool "MU-RGA Support"
+  	depends on MT7615_MUMIMO
+  	default y
+  	
+#config MT7615_AP_SER
+#        bool "SER Support"
+#        depends on MT7615_AP
+#        default y
+
+config MT7615_AP_TPC
+        bool "802.11h TPC Support"
+        depends on MT7615_AP
+        default y
+
+#config  MT7615_AP_MWDS
+#	bool "Wireless Mixed Bridge Mode (MWDS)"
+#	depends on MT7615_AP
+#	select MT7615_AP_APCLI
+#	default n
+
+config  MT7615_AP_CUSTOMIZED_HOSTAPD
+	bool "Customized Hostapd Support"
+	depends on RT_CFG80211
+	default n
+	
+config MT7615_AP_RADIUS_ACCOUNTING
+	bool "Radius Accounting Support"
+	depends on MT7615_AP
+	default n
+        
+config MT7615_AP_GREENAP
+	bool "GreenAP Support"
+	depends on MT7615_AP
+	default y
+
+config  MT7615_AP_DSCP_QOS_MAP_SUPPORT
+	bool "Dscp Qos Mapping Support"
+	depends on MT7615_AP
+	default n
+
+config  MT7615_AP_CON_WPS
+	bool "Concurrent WPS support"
+	depends on MT7615_AP
+	depends on MT7615_AP_APCLI
+	depends on RT_WSC_V2
+	default n
+
+#config  MT7615_AP_AIRPLAY
+#	bool "AirPlay support"
+#	depends on MT7615_AP
+#	default n
+
+config  MT7615_AP_MT_DFS
+	bool "DFS support"
+	depends on MT7615_AP
+	default n
+	help
+		DFS is a spectrum-sharing mechanism that allows wireless LANs (WLANs) to coexist with radar systems. 
+		It automatically selects a frequency that does not interfere with certain radar systems while operating
+		in the 5 GHz band. 
+		DFS is a feature of ETSI BRAN HIPERLAN/2 and IEEE Standard 802.11h.
+
+#config  MT7615_AP_CARRIER
+#	bool "Carrier Detection support"
+#	depends on MT7615_AP
+#	default n
+
+config  MT7615_AP_GREENAP
+	bool "Green AP mode support"
+	depends on MT7615_AP
+	depends on RT_FIRST_IF_MT7620
+
+config  MT7615_AP_IDS
+	bool "IDS (Intrusion Detection System) support"
+	depends on MT7615_AP
+	default n
+
+config  MT7615_AP_DLS
+	bool "802.11e DLS (Direct-Link Setup) support"
+	depends on MT7615_AP
+	default n
+
+config  MT7615_AP_80211AC_VHT
+	bool "802.11ac support"
+	depends on MT7615_AP
+	depends on (RT_FIRST_IF_MT7612E || RT_SECOND_IF_MT7612E)
+	default y
+
+config  MT7615_AP_TXBF
+	bool "Tx Beam Forming support"
+	depends on MT7615_AP
+	depends on (RT_FIRST_IF_MT7615E || RT_SECOND_IF_MT7615E)
+	default n
+	help
+		Beamforming or spatial filtering is a signal processing technique used 
+		in sensor arrays for directional signal transmission or reception.	
+		Beamforming can help improve wireless bandwidth utilization, and it can
+		increase a wireless network’s range.
+
+config MT7615_AP_DOT11_VHT_AC
+	bool "802.11AC support"
+	depends on MT7615_AP
+	default y
+
+config MT7615_AP_G_BAND_256QAM
+	bool "2.4G 256QAM support"
+	depends on MT7615_AP_DOT11_VHT_AC
+	default y
+
+config MT7615_AP_BRCM_256QAM
+	bool "BRCM 2.4G 256QAM support"
+	depends on MT7615_AP_G_BAND_256QAM_SUPPORT
+	default y
+
+config MT7615_AP_ICA
+	bool "ICAP Support"
+	depends on MT7615_AP
+	default y
+	
+config MT7615_AP_RED
+	bool "RED(Random Early Drop) support"
+	depends on MT7615_AP
+	default y
+
+config MT7615_AP_BACKGROUND_SCAN
+	bool "Background Scan Support"
+	depends on MT7615_AP
+	default y
+
+config MT7615_AP_SMART_CARRIER_SENSE
+	bool "Smart Carrier Sense Support"
+	depends on MT7615_AP
+	default y
+
+#config MT7615_AP_WFA_VHT_R2_PF
+#	bool "WFA VHT R2 Plugfest"
+#	depends on DOT11_VHT_AC
+#	default n
+
+config MT7615_AP_HDR_TRANS_TX
+	bool "Tx Header Translation"
+	depends on MT7615_AP
+	default y
+
+config MT7615_AP_HDR_TRANS_RX
+	bool "Rx Header Translation"
+	depends on MT7615_AP
+	default y
+
+config MT7615_AP_DBDC_MODE
+	bool "dbdc mode support"
+	depends on MT7615_AP
+	default y
+
+config MT7615_AP_UAPSD
+	bool "UAPSD support"
+	depends on MT7615_AP
+	default y
+	
+#config MT7615_APCARRIER_DETECTION
+#	bool "Carrier Detect"
+#	depends on MT7615_AP
+#	default n
+
+config MT7615_AP_SNIFFER
+	bool "SNIFFER support"
+	depends on MT7615_AP
+	default y
+	
+#config MT7615_AP_TCP_RACK
+#	bool "TCP Reduced ACK  support"
+#	depends on WIFI_DRIVER
+#	default n
+
+config MT7615_AP_AUTO_CH_SELECT_ENHANCE
+	bool "Auto Channel Selection Enhancement"
+	depends on MT7615_AP
+
+config MT7615_AP_VOW
+	bool "MediaAir(VOW) support"
+	depends on MT7615_AP
+	default n
+	
+#config MT7615_AP_TRACE_TCP_PKT
+#       bool "TCP DATA/ACK packets trace log"
+#       depends on MT7615_AP
+#       default n
+
+config MT7615_AP_MULTI_INF
+	bool "Multi interface Support"
+	depends on MT7615_AP
+	default y
+	
+config  MT7615_AP_RTMP_FLASH_SUPPORT
+	bool "Flash Support"
+	depends on MT7615_AP
+	default y
+
+config  MT7615_AP_CAL_TO_FLASH_SUPPORT
+	bool "CalibrationToFlash Support"
+	depends on MT7615_AP
+	default y
+	
+config  MT7615_AP_RF_LOCKDOWN
+	bool "RF Lockdown Support"
+	depends on MT7615_AP
+	default n	
+	
+endif

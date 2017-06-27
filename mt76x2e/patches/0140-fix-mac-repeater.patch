@@ -1,0 +1,12 @@
+diff --git a/mt76x2/include/rtmp_def.h b/mt76x2/include/rtmp_def.h
+index a238069..536ffd3 100644
+--- a/mt76x2/include/rtmp_def.h
++++ b/mt76x2/include/rtmp_def.h
+@@ -611,6 +611,7 @@ enum WIFI_MODE{
+ 
+ #ifdef MAC_REPEATER_SUPPORT
+ #define MAX_LEN_OF_MAC_TABLE (MAX_NUMBER_OF_MAC + ((MAX_EXT_MAC_ADDR_SIZE + 1) * MAX_APCLI_NUM))
++#define MAX_MAC_TABLE_SIZE_WITH_REPEATER (MAX_LEN_OF_MAC_TABLE + ((MAX_EXT_MAC_ADDR_SIZE + 1) * MAX_APCLI_NUM))
+ #else
+ #define MAX_LEN_OF_MAC_TABLE            MAX_NUMBER_OF_MAC	/* if MAX_MBSSID_NUM is 8, this value can't be larger than 211 */
+ #endif

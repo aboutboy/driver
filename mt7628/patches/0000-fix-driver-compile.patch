@@ -1,0 +1,76 @@
+--- a/mt7628/embedded/include/iface/rtmp_rbs.h
++++ b/mt7628/embedded/include/iface/rtmp_rbs.h
+@@ -26,7 +26,7 @@
+ 
+ #ifndef __RTMP_RBUS_H__
+ #define __RTMP_RBUS_H__
+-
++#include <asm/rt2880/surfboardint.h>
+ #include "iface/rtmp_inf_pcirbs.h"
+ 
+ /*************************************************************************
+--- a/mt7628_ap/Makefile
++++ b/mt7628_ap/Makefile
+@@ -95,7 +95,7 @@ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/..
+ 
+ ifeq ($(CONFIG_RT_ATE),y)
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/../ate/mt_mac/mt_ate.o
+-$(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/../ate/inf/ate_pci.o
++#$(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/../ate/inf/ate_pci.o
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/../ate/ate_agent.o
+ ifeq ($(CONFIG_RT_QA),y)
+ $(RT_DRV_NAME)-objs += $(RT_DRV_PATH)/../ate/qa_agent.o
+@@ -239,10 +239,10 @@ endif
+ ##################
+ 
+ EXTRA_CFLAGS  = -Wall -Wstrict-prototypes -Wno-trigraphs -Wframe-larger-than=4096 -Wno-unused -Wno-declaration-after-statement
+-EXTRA_CFLAGS += -Idrivers/net/wireless/ralink/$(RT_DRV_DIR)/include
+-EXTRA_CFLAGS += -Idrivers/net/wireless/ralink/$(RT_DRV_DIR)/embedded/include
++EXTRA_CFLAGS += -I$(RT_DRV_DIR)/include
++EXTRA_CFLAGS += -I$(RT_DRV_DIR)/embedded/include
+ ifeq ($(CONFIG_RT_ATE),y)
+-EXTRA_CFLAGS += -Idrivers/net/wireless/ralink/$(RT_DRV_DIR)/ate/include
++EXTRA_CFLAGS += -I$(RT_DRV_DIR)/ate/include
+ endif
+ EXTRA_CFLAGS += -DAGGREGATION_SUPPORT -DPIGGYBACK_SUPPORT -DWMM_SUPPORT -DLINUX
+ EXTRA_CFLAGS += -DCONFIG_AP_SUPPORT -DUAPSD_SUPPORT -DDOT11_N_SUPPORT -DDOT1X_SUPPORT
+@@ -441,3 +441,39 @@ endif
+ ifeq ($(CONFIG_RT_CFG80211),y)
+ EXTRA_CFLAGS += -DRT_CFG80211_SUPPORT -DEXT_BUILD_CHANNEL_LIST
+ endif
++
++EXTRA_CFLAGS += -DCONFIG_RA_NAT_NONE
++
++EXTRA_CFLAGS += -DCONFIG_RT_FIRST_CARD=$(CONFIG_RT_FIRST_CARD)
++EXTRA_CFLAGS += -DCONFIG_RT_SECOND_CARD=$(CONFIG_RT_SECOND_CARD)
++
++EXTRA_CFLAGS += -DCONFIG_RT_FIRST_IF_RF_OFFSET=$(CONFIG_RT_FIRST_IF_RF_OFFSET)
++EXTRA_CFLAGS += -DCONFIG_RT_SECOND_IF_RF_OFFSET=$(CONFIG_RT_SECOND_IF_RF_OFFSET)
++
++EXTRA_CFLAGS += -DCONFIG_RT_MAX_CLIENTS=$(CONFIG_RT_MAX_CLIENTS)
++
++ifeq ($(CONFIG_RT_FIRST_IF_EEPROM_PROM),y)
++EXTRA_CFLAGS += -DCONFIG_RT_FIRST_CARD_EEPROM="\"prom\""
++else
++ifeq ($(CONFIG_RT_FIRST_IF_EEPROM_EFUSE),y)
++EXTRA_CFLAGS += -DCONFIG_RT_FIRST_CARD_EEPROM="\"efuse\""
++else
++ifeq ($(CONFIG_RT_FIRST_IF_EEPROM_FLASH),y)
++EXTRA_CFLAGS += -DCONFIG_RT_FIRST_CARD_EEPROM="\"flash\""
++endif
++endif
++endif
++
++ifeq ($(CONFIG_SECOND_IF_EEPROM_PROM),y)
++EXTRA_CFLAGS += -DCONFIG_RT_SECOND_CARD_EEPROM="\"prom\""
++else
++ifeq ($(CONFIG_SECOND_IF_EEPROM_EFUSE),y)
++EXTRA_CFLAGS += -DCONFIG_RT_SECOND_CARD_EEPROM="\"efuse\""
++else
++ifeq ($(CONFIG_SECOND_IF_EEPROM_FLASH),y)
++EXTRA_CFLAGS += -DCONFIG_RT_SECOND_CARD_EEPROM="\"flash\""
++endif
++endif
++endif 
++
++EXTRA_CFLAGS += -Wno-date-time

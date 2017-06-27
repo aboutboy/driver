@@ -1,0 +1,26 @@
+--- a/mt76x3/common/cmm_info.c
++++ b/mt76x3/common/cmm_info.c
+@@ -2367,21 +2367,8 @@ VOID RTMPCommSiteSurveyData(
+ 
+ 		/*SSID*/
+ 	NdisZeroMemory(Ssid, (MAX_LEN_OF_SSID +1));
+-	if (RTMPCheckStrPrintAble((PCHAR)pBss->Ssid, pBss->SsidLen))
+-		NdisMoveMemory(Ssid, pBss->Ssid, pBss->SsidLen);
+-	else
+-	{
+-		INT idx = 0;
+-		
+-#ifdef AIRPLAY_SUPPORT		
+-		isUniCodeSsid = TRUE;
+-#endif /* AIRPLAY_SUPPORT */	
+-
+-		sprintf(Ssid, "0x");
+-		for (idx = 0; (idx < MAX_LEN_OF_SSID) && (idx < pBss->SsidLen); idx++)
+-			sprintf(Ssid + 2 + (idx*2), "%02X", (UCHAR)pBss->Ssid[idx]);
+-	}
+-	sprintf(msg+strlen(msg),"%-33s", Ssid); 	 
++	NdisMoveMemory(Ssid, pBss->Ssid, pBss->SsidLen);
++	sprintf(msg+strlen(msg),"\n%s\n", Ssid);
+ 
+ 
+ #ifdef AIRPLAY_SUPPORT

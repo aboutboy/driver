@@ -1,0 +1,151 @@
+diff --git a/mt76x2/ap/ap_cfg.c b/mt76x2/ap/ap_cfg.c
+index 92aadbe..a4d89a2 100644
+--- a/mt76x2/ap/ap_cfg.c
++++ b/mt76x2/ap/ap_cfg.c
+@@ -11236,8 +11236,11 @@ VOID RTMPIoctlStatistics(RTMP_ADAPTER *pAd, RTMP_IOCTL_INPUT_STRUCT *wrq)
+ 				if (IS_ENTRY_CLIENT(pEntry) && pEntry->Sst==SST_ASSOC)
+ 				{
+ 					//sprintf(msg+strlen(msg), "sta mac: %02x:%02x:%02x:%02x:%02x:%02x\n", pEntry->wdev->if_addr[0], pEntry->wdev->if_addr[1],  pEntry->wdev->if_addr[2],  pEntry->wdev->if_addr[3],  pEntry->wdev->if_addr[4],  pEntry->wdev->if_addr[5]); 
+-					UINT32 lastRxRate = pEntry->LastRxRate;
+-					UINT32 lastTxRate = pEntry->HTPhyMode.word;
++					//UINT32 lastRxRate = pEntry->LastRxRate;
++					//UINT32 lastTxRate = pEntry->HTPhyMode.word;
++					MACHTTRANSMIT_SETTING lastTxRate, lastRxRate;
++					lastTxRate.word = pEntry->HTPhyMode.word;
++					lastRxRate.word = pEntry->LastRxRate;
+ #ifdef RT65xx
+ 					if (IS_RT65XX(pAd)) {
+ 						ULONG TxTotalCnt, TxSuccess, TxRetransmit, TxFailCount, TxErrorRatio = 0;
+@@ -11254,60 +11257,60 @@ VOID RTMPIoctlStatistics(RTMP_ADAPTER *pAd, RTMP_IOCTL_INPUT_STRUCT *wrq)
+ 
+ 						if (TxTotalCnt)
+ 							TxErrorRatio = ((TxRetransmit + TxFailCount) * 100) / TxTotalCnt;
+-
+-						if (((lastTxRate >> 13) & 0x7) == 0x04) {
++						if ((lastTxRate.field.MODE & 0x7) == 0x04) {
+ 							sprintf(msg+strlen(msg), "Last TX Rate                    = MCS%d, %dSS, %s, %s, %cGI, %s%s\n",
+-								lastTxRate & 0x0F,
+-								(((lastTxRate >> 4) & 0x3) + 1),
+-								fec_coding[((lastTxRate >> 6) & 0x1)],
+-								bw[((lastTxRate >> 7) & 0x3)],
+-								((lastTxRate >> 9) & 0x1)? 'S': 'L',
+-								phyMode[(lastTxRate >> 13) & 0x7],
+-								((lastTxRate >> 10) & 0x3)? ", STBC": " ");
++								lastTxRate.word & 0x0F,
++								(((lastTxRate.word >> 4) & 0x3) + 1),
++								fec_coding[lastTxRate.field.ldpc],
++								bw[lastTxRate.field.BW],
++								lastTxRate.field.ShortGI ? 'S': 'L',
++								phyMode[lastTxRate.field.MODE],
++								lastTxRate.field.STBC ? ", STBC": " ");
+ 
+ 							sprintf(msg+strlen(msg), "Last TX PER = %lu\n", TxErrorRatio);
+ 						} else {
+ 							sprintf(msg+strlen(msg), "Last TX Rate                    = MCS%d, %s, %s, %cGI, %s%s\n",
+-								lastTxRate & 0x3F,
+-								fec_coding[((lastTxRate >> 6) & 0x1)],	
+-								bw[((lastTxRate >> 7) & 0x3)],
+-								((lastTxRate >> 9) & 0x1)? 'S': 'L',
+-								phyMode[(lastTxRate >> 13) & 0x7],
+-								((lastTxRate >> 10) & 0x3)? ", STBC": " ");
++								lastTxRate.field.MCS,
++								fec_coding[lastTxRate.field.ldpc],
++								bw[lastTxRate.field.BW],
++								lastTxRate.field.ShortGI ? 'S': 'L',
++								phyMode[lastTxRate.field.MODE],
++								lastTxRate.field.STBC ? ", STBC": " ");
+ 						}
+ 
+-						if (((lastRxRate >> 13) & 0x7) == 0x04) {
++						if ((lastRxRate.field.MODE & 0x7) == 0x04) {
+ 							sprintf(msg+strlen(msg), "Last RX Rate                    = MCS%d, %dSS, %s, %s, %cGI, %s%s\n",
+-								lastRxRate & 0x0F,
+-								(((lastRxRate >> 4) & 0x3) + 1),
+-								fec_coding[((lastRxRate >> 6) & 0x1)],
+-								bw[((lastRxRate >> 7) & 0x3)],
+-								((lastRxRate >> 9) & 0x1)? 'S': 'L',
+-								phyMode[(lastRxRate >> 13) & 0x7],
+-								((lastRxRate >> 10) & 0x3)? ", STBC": " ");
++								lastRxRate.word & 0x0F,
++								(((lastRxRate.word >> 4) & 0x3) + 1),
++								fec_coding[lastRxRate.field.ldpc],
++								bw[lastRxRate.field.BW],
++								lastRxRate.field.ShortGI  ? 'S': 'L',
++								phyMode[lastRxRate.field.MODE],
++								lastRxRate.field.STBC ? ", STBC": " ");
+ 						} else {
+ 							sprintf(msg+strlen(msg), "Last RX Rate                    = MCS%d, %s, %s, %cGI, %s%s\n",
+-								lastRxRate & 0x3F,
+-								fec_coding[((lastRxRate >> 6) & 0x1)],	
+-								bw[((lastRxRate >> 7) & 0x3)],
+-								((lastRxRate >> 9) & 0x1)? 'S': 'L',
+-								phyMode[(lastRxRate >> 13) & 0x7],
+-								((lastRxRate >> 10) & 0x3)? ", STBC": " ");
++								lastRxRate.field.MCS,
++								fec_coding[lastRxRate.field.ldpc],
++								bw[lastRxRate.field.BW],
++								lastRxRate.field.ShortGI ? 'S': 'L',
++								phyMode[lastRxRate.field.MODE],
++								lastRxRate.field.STBC ? ", STBC": " ");
+ 						}
+ 					}
+ 					else
+ #endif /* RT65xx */
+ 					{
+ 						sprintf(msg+strlen(msg), "Last TX Rate                    = MCS%d, %2dM, %cGI, %s%s\n",
+-							lastTxRate & 0x3F,  ((lastTxRate>>7) & 0x3)? 40: 20,
+-							((lastTxRate>>9) & 0x1)? 'S': 'L',
+-							phyMode[(lastTxRate>>13) & 0x3],
+-							((lastTxRate>>10) & 0x1)? ", STBC": " ");
++							lastTxRate.field.MCS, lastTxRate.field.BW ? 40: 20,
++							lastTxRate.field.ShortGI ? 'S': 'L',
++							phyMode[lastTxRate.field.MODE],
++							lastTxRate.field.STBC? ", STBC": " ");
++
+ 						sprintf(msg+strlen(msg), "Last RX Rate                    = MCS%d, %2dM, %cGI, %s%s\n",
+-							lastRxRate & 0x3F,  ((lastRxRate>>7) & 0x3)? 40: 20,
+-							((lastRxRate>>9) & 0x1)? 'S': 'L',
+-							phyMode[(lastRxRate>>13) & 0x3],
+-							((lastRxRate>>10) & 0x1)? ", STBC": " ");
++							lastRxRate.field.MCS,  lastRxRate.field.BW ? 40: 20,
++							lastRxRate.field.ShortGI ? 'S': 'L',
++							phyMode[lastRxRate.field.MODE],
++							lastRxRate.field.STBC  ? ", STBC": " ");
+ 					}
+ 
+ 					break;
+diff --git a/mt76x2/common/cmm_info.c b/mt76x2/common/cmm_info.c
+index 7d0bd97..abd6776 100644
+--- a/mt76x2/common/cmm_info.c
++++ b/mt76x2/common/cmm_info.c
+@@ -3330,6 +3330,13 @@ copy_mac_table_entry(RT_802_11_MAC_ENTRY *pDst, MAC_TABLE_ENTRY *pEntry)
+ 
+ 	pDst->TxRate.word = pEntry->HTPhyMode.word;
+ 	pDst->LastRxRate = pEntry->LastRxRate;
++	pDst->TxPackets	= pEntry->TxPackets.QuadPart; //TxPackets.QuadPart
++	pDst->RxPackets	= pEntry->RxPackets.QuadPart;  //RxPackets.QuadPart
++	pDst->TxBytes	= pEntry->TxBytes;
++	pDst->RxBytes	= pEntry->RxBytes;
++	pDst->RxBytes	= pEntry->RxBytes;
++	pDst->LastTxOkCount = pEntry->LastTxOkCount; /* TxSuccess count in last Rate Adaptation interval */
++	pDst->LastTxPER = pEntry->LastTxPER;	/* Tx PER in last Rate Adaptation interval */
+ }
+ 
+ 
+diff --git a/mt76x2/include/oid.h b/mt76x2/include/oid.h
+index dd482c3..59ec310 100644
+--- a/mt76x2/include/oid.h
++++ b/mt76x2/include/oid.h
+@@ -1304,6 +1304,12 @@ typedef struct _RT_802_11_MAC_ENTRY {
+ 	UINT32 ConnectedTime;
+ 	MACHTTRANSMIT_SETTING TxRate;
+ 	UINT32 LastRxRate;
++	ULONG 	TxPackets; //TxPackets.QuadPart
++	ULONG 	RxPackets;  //RxPackets.QuadPart
++	ULONG 	TxBytes;
++	ULONG 	RxBytes;
++	ULONG 	LastTxOkCount; /* TxSuccess count in last Rate Adaptation interval */
++	UCHAR 	LastTxPER;	/* Tx PER in last Rate Adaptation interval */
+ } RT_802_11_MAC_ENTRY, *PRT_802_11_MAC_ENTRY;
+ 
+ typedef struct _RT_802_11_MAC_TABLE {

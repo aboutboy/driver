@@ -1,0 +1,50 @@
+diff --git a/mt76x2/ap/ap_cfg.c b/mt76x2/ap/ap_cfg.c
+index 2c76708..5303d91 100644
+--- a/mt76x2/ap/ap_cfg.c
++++ b/mt76x2/ap/ap_cfg.c
+@@ -4328,6 +4328,8 @@ INT RTMPAPQueryInformation(
+     STRING	driverVersion[16];
+ 	struct wifi_dev *wdev;
+ 	UCHAR	apidx = pObj->ioctl_if;
++	int j;
++	char country_num[4]={0};
+ #ifdef WSC_AP_SUPPORT
+ 	UINT WscPinCode = 0;
+ 	PWSC_PROFILE pProfile;
+@@ -4912,6 +4914,24 @@ INT RTMPAPQueryInformation(
+ 				Status = -EFAULT;
+ 			}
+ 			break;
++
++		case RT_OID_GET_COUNTRYCODE:
++			wrq->u.data.length = sizeof(UINT);
++			for(j=0; j < NUM_OF_COUNTRIES; j++)
++			{
++				if ( !strncmp(pAd->CommonCfg.CountryCode,  allCountry[j].IsoName, 2) )
++				{
++					sprintf(country_num, "%d", allCountry[j].CountryNum);
++					if (copy_to_user(wrq->u.data.pointer, &country_num, wrq->u.data.length))
++					{
++						Status = -EFAULT;
++					}
++
++					break;
++				}
++			}
++			break;
++
+ 		case RT_OID_GET_ENCRYPTYPE:
+ 			{
+ 				wrq->u.data.length = sizeof(UINT);;
+diff --git a/mt76x2/include/oid.h b/mt76x2/include/oid.h
+index 17f20cf..03193a5 100644
+--- a/mt76x2/include/oid.h
++++ b/mt76x2/include/oid.h
+@@ -1122,6 +1122,7 @@ typedef struct _NDIS_802_11_CAPABILITY {
+ #endif /* CONFIG_AP_SUPPORT */
+ #endif /* LLTD_SUPPORT */
+ 
++#define RT_OID_GET_COUNTRYCODE						0x0998
+ #define RT_OID_GET_ENCRYPTYPE						0x0999
+ 
+ #ifdef WSC_NFC_SUPPORT

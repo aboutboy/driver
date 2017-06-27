@@ -1,0 +1,15 @@
+--- a/mt76x2/ap/ap_apcli.c
++++ b/mt76x2/ap/ap_apcli.c
+@@ -466,10 +466,10 @@ BOOLEAN ApCliLinkUp(RTMP_ADAPTER *pAd, U
+ 			}
+ #endif /* MAC_REPEATER_SUPPORT */
+ 
+-			DBGPRINT(RT_DEBUG_TRACE, ("!!! APCLI LINK UP - IF(%s%d) AuthMode(%d)=%s, WepStatus(%d)=%s !!!\n", 
++			printk("!!! APCLI LINK UP - IF(%s%d) AuthMode(%d)=%s, WepStatus(%d)=%s !!!\n", 
+ 					INF_APCLI_DEV_NAME, ifIndex, 
+ 										pAd->ApCfg.ApCliTab[ifIndex].wdev.AuthMode, GetAuthMode(pAd->ApCfg.ApCliTab[ifIndex].wdev.AuthMode),
+-										pAd->ApCfg.ApCliTab[ifIndex].wdev.WepStatus, GetEncryptType(pAd->ApCfg.ApCliTab[ifIndex].wdev.WepStatus)));			
++										pAd->ApCfg.ApCliTab[ifIndex].wdev.WepStatus, GetEncryptType(pAd->ApCfg.ApCliTab[ifIndex].wdev.WepStatus));			
+ 		}
+ 		else
+ 		{

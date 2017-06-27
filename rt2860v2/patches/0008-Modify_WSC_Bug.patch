@@ -1,0 +1,11 @@
+--- a/rt2860v2/common/wsc.c
++++ b/rt2860v2/common/wsc.c
+@@ -7557,6 +7557,8 @@ void    WscWriteConfToPortCfg(
+ 						pPMKBuf = pAd->ApCfg.MBSSID[CurApIdx].PMK;
+ 						pSSIDStr = (PUCHAR)pAd->ApCfg.MBSSID[CurApIdx].Ssid;
+ 						ssidLen = pAd->ApCfg.MBSSID[CurApIdx].SsidLen;
++						RTMPZeroMemory(pAd->ApCfg.MBSSID[CurApIdx].WPAKeyString, 65);
++						RTMPMoveMemory(pAd->ApCfg.MBSSID[CurApIdx].WPAKeyString, pCredential->Key, pWscControl->WpaPskLen);
+ 					}
+ #endif /* CONFIG_AP_SUPPORT */
+ #ifdef CONFIG_STA_SUPPORT

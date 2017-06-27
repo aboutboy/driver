@@ -1,0 +1,29 @@
+diff --git a//mt76x3/ap/ap_cfg.c b//mt76x3/ap/ap_cfg.c
+index c0aef63..93a230f 100644
+--- a//mt76x3/ap/ap_cfg.c
++++ b//mt76x3/ap/ap_cfg.c
+@@ -8584,7 +8584,8 @@ VOID RTMPIoctlStatistics(RTMP_ADAPTER *pAd, RTMP_IOCTL_INPUT_STRUCT *wrq)
+ 	ULONG txPackets=0, rxPackets=0, txBytes=0, rxBytes=0;
+ 	UCHAR index=0;
+ #endif
+-
++	UINT32 temperature=0;
++	
+ 	os_alloc_mem(pAd, (UCHAR **)&msg, sizeof(CHAR)*(2048));
+ 	if (msg == NULL) {
+ 		return;
+@@ -8612,7 +8613,13 @@ VOID RTMPIoctlStatistics(RTMP_ADAPTER *pAd, RTMP_IOCTL_INPUT_STRUCT *wrq)
+ 		txCount = pAd->WlanCounters.TransmittedFragmentCount.u.LowPart;
+ 		rxCount = pAd->WlanCounters.ReceivedFragmentCount.QuadPart;
+ 	}
+-
++#if defined(MT7603) || defined(MT7628)
++	temperature = MtAsicGetThemalSensor(pAd, 0);
++#else
++	CmdGetThermalSensorResult(pAd,0,&temperature);
++#endif /* MT7603 ||MT7628  */
++	sprintf(msg+strlen(msg),"CurrentTemperature              = %d\n",temperature);
++	
+     sprintf(msg+strlen(msg), "Tx success                      = %ld\n", txCount);
+ #ifdef ENHANCED_STAT_DISPLAY
+ 	if (pAd->chipCap.hif_type == HIF_MT) {

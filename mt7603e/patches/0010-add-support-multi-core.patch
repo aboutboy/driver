@@ -1,0 +1,13 @@
+--- a/mt76x3_ap/Makefile
++++ b/mt76x3_ap/Makefile
+@@ -413,6 +413,10 @@ ifeq ($(CONFIG_RT_MCAST_RATE_SPECIFIC),y
+ EXTRA_CFLAGS += -DMCAST_RATE_SPECIFIC
+ endif
+ 
++ifeq ($(CONFIG_RT_MULTI_CORE_SUPPORT),y)
++EXTRA_CFLAGS += -DMULTI_CORE_SUPPORT
++endif
++
+ ifeq ($(CONFIG_RT_HDR_TRANS),y)
+ EXTRA_CFLAGS += -DHDR_TRANS_SUPPORT
+ endif

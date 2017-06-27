@@ -1,0 +1,66 @@
+--- a/rt2860v2/ap/ap_cfg.c
++++ b/rt2860v2/ap/ap_cfg.c
+@@ -3773,12 +3773,19 @@ INT RTMPAPQueryInformation(
+                 break;
+ #endif /* DOT1X_SUPPORT */
+ 	case OID_802_11_AUTHENTICATION_MODE:
++			{
+                 DBGPRINT(RT_DEBUG_TRACE, ("Query::OID_802_11_AUTHENTICATION_MODE \n"));
+-	        wrq->u.data.length = sizeof(NDIS_802_11_AUTHENTICATION_MODE);
+-	        AuthMode=pAd->ApCfg.MBSSID[pObj->ioctl_if].AuthMode;
+-	        Status = copy_to_user(wrq->u.data.pointer, &AuthMode, wrq->u.data.length);
+-                break;
+ 
++	       		wrq->u.data.length = sizeof(NDIS_802_11_AUTHENTICATION_MODE);
++#ifdef APCLI_SUPPORT
++				if (pObj->ioctl_if_type == INT_APCLI)
++					AuthMode=pAd->ApCfg.ApCliTab[apidx].AuthMode;
++				else
++#endif
++	       			AuthMode=pAd->ApCfg.MBSSID[pObj->ioctl_if].AuthMode;
++	        		Status = copy_to_user(wrq->u.data.pointer, &AuthMode, wrq->u.data.length);
++                break;
++			}
+ #ifdef APCLI_SUPPORT
+ #ifdef APCLI_WPA_SUPPLICANT_SUPPORT
+ 	        case RT_OID_NEW_DRIVER:
+@@ -4222,6 +4229,28 @@ INT RTMPAPQueryInformation(
+ 				Status = -EFAULT;
+ 			}
+ 			break;
++		case RT_OID_GET_ENCRYPTYPE:
++			{
++				wrq->u.data.length = sizeof(UINT);
++#ifdef APCLI_SUPPORT
++				if (pObj->ioctl_if_type == INT_APCLI)
++				{
++					INT ApCliIdx = pObj->ioctl_if;
++					if (copy_to_user(wrq->u.data.pointer, &pAd->ApCfg.ApCliTab[ApCliIdx].WepStatus,wrq->u.data.length))
++					{
++						Status = -EFAULT;
++					}
++				}else
++#endif
++				{
++
++					if (copy_to_user(wrq->u.data.pointer, &pAd->ApCfg.MBSSID[pObj->ioctl_if].WepStatus, wrq->u.data.length))
++					{
++						Status = -EFAULT;
++					}
++				}
++				break;
++			}
+ 
+ 		case OID_802_11_ASSOLIST:
+ 			DBGPRINT(RT_DEBUG_TRACE, ("Query::OID_802_11_ASSOLIST \n"));
+--- a/rt2860v2/include/oid.h
++++ b/rt2860v2/include/oid.h
+@@ -977,7 +977,7 @@ typedef struct _NDIS_802_11_CAPABILITY {
+ #define RT_OID_WSC_SET_CON_WPS_STOP                 0x0764
+ #endif /* CON_WPS */
+ 
+-
++#define RT_OID_GET_ENCRYPTYPE						0x0999
+ 
+ 
+ /* New for MeetingHouse Api support */
